@@ -2,6 +2,8 @@
 
 一个单文件的在线节拍器，使用 Web Audio API 做精确的前瞻式节拍调度，适合日常练习、录音参考和节奏训练。
 
+> 在线使用：<https://colargmsk.github.io/pulse-metronome/>
+
 ## 功能
 
 - **精准计时**：基于 Web Audio 音频时钟调度，不依赖界面动画或普通 `setInterval` 累加节拍。
