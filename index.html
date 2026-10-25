@@ -1,0 +1,4671 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#090a0c" id="themeColorMeta">
+<meta name="description" content="Pulse 在线节拍器：Web Audio 精确调度，支持 20–300 BPM、1–16 拍、11 种细分、Swing 律动、首拍重音、Tap Tempo、倒计时与演奏大屏模式。">
+<title>Pulse 节拍器 · 精确 BPM 与节奏细分</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23111318'/%3E%3Cpath d='M32 13 19 50h26L32 13Z' fill='%23f2a35c'/%3E%3Ccircle cx='32' cy='44' r='4.5' fill='%23111318'/%3E%3C/svg%3E">
+<script>
+  (function () {
+    try {
+      var saved = JSON.parse(localStorage.getItem('pulse-metronome-v1') || 'null');
+      var theme = saved && (saved.theme === 'light' || saved.theme === 'dark')
+        ? saved.theme
+        : (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+      document.documentElement.dataset.theme = theme;
+    } catch (e) {
+      document.documentElement.dataset.theme = 'dark';
+    }
+  })();
+</script>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #08090b;
+    --bg-soft: #0d0f13;
+    --panel: #111318;
+    --panel-deep: #0c0e12;
+    --panel-raised: #181b22;
+    --cell: #15181e;
+    --cell-hover: #1b1f27;
+    --line: rgba(255, 255, 255, 0.1);
+    --line-strong: rgba(255, 255, 255, 0.19);
+    --text: #f2eee6;
+    --muted: #a0a5b0;
+    --dim: #7f8591;
+    --accent: #f2a35c;
+    --accent-hot: #ffc17e;
+    --accent-deep: #d47b2d;
+    --accent-soft: rgba(242, 163, 92, 0.12);
+    --accent-glow: rgba(242, 163, 92, 0.2);
+    --accent-contrast: #1b1106;
+    --green: #7dd6ae;
+    --green-soft: rgba(125, 214, 174, 0.14);
+    --danger: #ff8d70;
+    --danger-soft: rgba(255, 141, 112, 0.14);
+    --shadow: 0 30px 90px rgba(0, 0, 0, 0.42);
+    --stage-start: rgba(242, 163, 92, 0.04);
+    --stage-end: rgba(242, 163, 92, 0.13);
+    --top-glow: rgba(242, 163, 92, 0.1);
+    --hero-glow: rgba(242, 163, 92, 0.07);
+    --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    --font-number: "SF Pro Display", "Helvetica Neue", "Segoe UI", Arial, sans-serif;
+    --radius-xl: 34px;
+    --radius-lg: 24px;
+    --radius-md: 14px;
+  }
+
+  [data-theme="light"] {
+    color-scheme: light;
+    --bg: #eee9df;
+    --bg-soft: #f6f1e8;
+    --panel: #fffcf6;
+    --panel-deep: #f6f0e5;
+    --panel-raised: #f9f4eb;
+    --cell: #f6f1e8;
+    --cell-hover: #f0e9dd;
+    --line: rgba(37, 30, 21, 0.1);
+    --line-strong: rgba(37, 30, 21, 0.19);
+    --text: #211c15;
+    --muted: #746d61;
+    --dim: #857b6c;
+    --accent: #c76f28;
+    --accent-hot: #df8739;
+    --accent-deep: #9e531a;
+    --accent-soft: rgba(199, 111, 40, 0.1);
+    --accent-glow: rgba(199, 111, 40, 0.18);
+    --accent-contrast: #fff9f1;
+    --green: #287f61;
+    --green-soft: rgba(40, 127, 97, 0.12);
+    --danger: #bf4d35;
+    --danger-soft: rgba(191, 77, 53, 0.11);
+    --shadow: 0 30px 80px rgba(77, 58, 32, 0.11);
+    --stage-start: rgba(199, 111, 40, 0.035);
+    --stage-end: rgba(199, 111, 40, 0.13);
+    --top-glow: rgba(228, 160, 86, 0.16);
+    --hero-glow: rgba(225, 164, 96, 0.12);
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  html {
+    min-width: 320px;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    min-height: 100vh;
+    margin: 0;
+    overflow-x: hidden;
+    background:
+      radial-gradient(ellipse 60% 42% at 12% -8%, var(--top-glow), transparent 68%),
+      radial-gradient(ellipse 54% 38% at 94% 2%, rgba(116, 161, 148, 0.055), transparent 70%),
+      var(--bg);
+    color: var(--text);
+    font-family: var(--font-ui);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  body::before {
+    position: fixed;
+    inset: 0;
+    z-index: 2000;
+    opacity: 0.025;
+    pointer-events: none;
+    content: "";
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.75'/%3E%3C/svg%3E");
+    mix-blend-mode: overlay;
+  }
+
+  ::selection {
+    background: var(--accent);
+    color: var(--accent-contrast);
+  }
+
+  button,
+  input {
+    font: inherit;
+  }
+
+  button {
+    color: inherit;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  button:not(:disabled) {
+    cursor: pointer;
+  }
+
+  button:disabled {
+    cursor: not-allowed;
+    opacity: 0.46;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 3px;
+  }
+
+  svg {
+    display: block;
+  }
+
+  kbd {
+    display: inline-flex;
+    min-width: 22px;
+    height: 22px;
+    padding: 0 6px;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--line-strong);
+    border-bottom-color: var(--dim);
+    border-radius: 6px;
+    background: var(--cell);
+    color: var(--muted);
+    font-family: var(--font-ui);
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 1;
+    letter-spacing: 0.04em;
+    box-shadow: 0 1px 0 rgba(0, 0, 0, 0.18);
+  }
+
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  .topbar {
+    display: flex;
+    width: 100%;
+    max-width: 1500px;
+    min-height: 82px;
+    margin: 0 auto;
+    padding: 22px 42px 18px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 24px;
+  }
+
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 13px;
+    user-select: none;
+  }
+
+  .brand-mark {
+    display: flex;
+    width: 38px;
+    height: 38px;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: linear-gradient(145deg, var(--panel-raised), var(--panel));
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  }
+
+  .brand-mark i {
+    display: block;
+    width: 3px;
+    border-radius: 999px;
+    background: var(--accent);
+    transform-origin: center;
+    animation: equalize 1.15s ease-in-out infinite;
+    animation-play-state: paused;
+  }
+
+  .brand-mark i:nth-child(1) {
+    height: 11px;
+    animation-delay: -0.35s;
+  }
+
+  .brand-mark i:nth-child(2) {
+    height: 20px;
+    animation-delay: -0.7s;
+  }
+
+  .brand-mark i:nth-child(3) {
+    height: 14px;
+    animation-delay: -0.1s;
+  }
+
+  body.is-playing .brand-mark i {
+    animation-play-state: running;
+  }
+
+  @keyframes equalize {
+    0%, 100% { transform: scaleY(0.55); opacity: 0.55; }
+    50% { transform: scaleY(1); opacity: 1; }
+  }
+
+  .brand-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .brand-name {
+    font-size: 15px;
+    font-weight: 700;
+    line-height: 1;
+    letter-spacing: 0.2em;
+  }
+
+  .brand-sub {
+    color: var(--muted);
+    font-size: 9px;
+    font-weight: 500;
+    line-height: 1;
+    letter-spacing: 0.13em;
+  }
+
+  .topbar-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .top-hint {
+    display: flex;
+    margin-right: 10px;
+    align-items: center;
+    gap: 7px;
+    color: var(--dim);
+    font-size: 11px;
+    letter-spacing: 0.02em;
+  }
+
+  .icon-button {
+    display: inline-flex;
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--panel);
+    color: var(--muted);
+    transition: border-color 160ms ease, color 160ms ease, background 160ms ease, transform 160ms ease;
+  }
+
+  .icon-button:hover {
+    border-color: var(--line-strong);
+    background: var(--panel-raised);
+    color: var(--text);
+  }
+
+  .icon-button:active {
+    transform: scale(0.95);
+  }
+
+  .icon-button svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  .icon-moon {
+    display: none;
+  }
+
+  [data-theme="light"] .icon-sun {
+    display: none;
+  }
+
+  [data-theme="light"] .icon-moon {
+    display: block;
+  }
+
+  .shell {
+    width: 100%;
+    max-width: 1500px;
+    margin: 0 auto;
+    padding: 0 42px 36px;
+  }
+
+  .hero {
+    position: relative;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-xl);
+    background: linear-gradient(146deg, var(--panel-raised) 0%, var(--panel) 54%, var(--panel-deep) 100%);
+    box-shadow: var(--shadow);
+    isolation: isolate;
+  }
+
+  .hero::before {
+    position: absolute;
+    top: -240px;
+    right: 8%;
+    z-index: -1;
+    width: 560px;
+    height: 560px;
+    border-radius: 50%;
+    background: radial-gradient(circle, var(--hero-glow), transparent 67%);
+    content: "";
+    pointer-events: none;
+  }
+
+  .hero::after {
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    background-image:
+      linear-gradient(var(--line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--line) 1px, transparent 1px);
+    background-size: 72px 72px;
+    content: "";
+    opacity: 0.16;
+    mask-image: linear-gradient(135deg, transparent 24%, #000 100%);
+    pointer-events: none;
+  }
+
+  .hero-main {
+    display: grid;
+    min-height: 436px;
+    grid-template-columns: minmax(0, 1.08fr) minmax(0, 0.92fr);
+  }
+
+  .tempo-pane {
+    position: relative;
+    display: flex;
+    padding: 38px 46px 32px;
+    flex-direction: column;
+    justify-content: center;
+    border-right: 1px solid var(--line);
+  }
+
+  .tempo-head {
+    display: flex;
+    margin-bottom: 14px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+  }
+
+  .eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    color: var(--muted);
+    font-size: 10px;
+    font-weight: 650;
+    letter-spacing: 0.19em;
+    text-transform: uppercase;
+  }
+
+  .eyebrow-line {
+    display: inline-block;
+    width: 18px;
+    height: 1px;
+    background: var(--accent);
+  }
+
+  .tempo-tag {
+    max-width: 58%;
+    padding: 7px 11px;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--cell);
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .bpm-line {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+  }
+
+  .round-button {
+    display: inline-flex;
+    width: 46px;
+    height: 46px;
+    flex: 0 0 46px;
+    padding: 0;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--line-strong);
+    border-radius: 50%;
+    background: transparent;
+    color: var(--muted);
+    transition: color 150ms ease, border-color 150ms ease, background 150ms ease, transform 150ms ease;
+  }
+
+  .round-button:hover {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+    color: var(--accent);
+  }
+
+  .round-button:active {
+    transform: scale(0.93);
+  }
+
+  .round-button svg {
+    width: 19px;
+    height: 19px;
+  }
+
+  .bpm-value {
+    display: flex;
+    min-width: 0;
+    flex: 1;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0;
+  }
+
+  .bpm-number {
+    width: 3.4ch;
+    max-width: 100%;
+    padding: 0;
+    border: 0;
+    outline: 0;
+    background: transparent;
+    color: var(--text);
+    font-family: var(--font-number);
+    font-size: clamp(84px, 9.6vw, 142px);
+    font-variant-numeric: tabular-nums;
+    font-weight: 560;
+    line-height: 0.8;
+    letter-spacing: -0.03em;
+    text-align: center;
+    text-indent: 0;
+    caret-color: var(--accent);
+  }
+
+  .bpm-number::selection {
+    background: var(--accent);
+  }
+
+  .bpm-number:focus-visible {
+    outline: 0;
+    color: var(--accent-hot);
+  }
+
+  .bpm-unit {
+    margin-top: 10px;
+    padding: 0;
+    color: var(--muted);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.23em;
+  }
+
+  .bpm-caption {
+    display: flex;
+    margin: 17px 0 0;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    color: var(--muted);
+    font-size: 11.5px;
+    line-height: 1.4;
+    text-align: center;
+  }
+
+  .caption-dot {
+    width: 3px;
+    height: 3px;
+    border-radius: 50%;
+    background: var(--dim);
+  }
+
+  .slider-block {
+    margin-top: 23px;
+  }
+
+  .range-input {
+    width: 100%;
+    height: 28px;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    outline: 0;
+    background: transparent;
+    -webkit-appearance: none;
+    appearance: none;
+    cursor: pointer;
+  }
+
+  .range-input::-webkit-slider-runnable-track {
+    width: 100%;
+    height: 4px;
+    border-radius: 99px;
+    background: linear-gradient(90deg, var(--accent) 0 var(--fill, 36%), var(--line-strong) var(--fill, 36%) 100%);
+  }
+
+  .range-input::-webkit-slider-thumb {
+    width: 20px;
+    height: 20px;
+    margin-top: -8px;
+    border: 4px solid var(--accent);
+    border-radius: 50%;
+    background: var(--text);
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.24);
+    transition: transform 120ms ease;
+    -webkit-appearance: none;
+    appearance: none;
+  }
+
+  .range-input:hover::-webkit-slider-thumb {
+    transform: scale(1.1);
+  }
+
+  .range-input::-moz-range-track {
+    width: 100%;
+    height: 4px;
+    border-radius: 99px;
+    background: var(--line-strong);
+  }
+
+  .range-input::-moz-range-progress {
+    height: 4px;
+    border-radius: 99px;
+    background: var(--accent);
+  }
+
+  .range-input::-moz-range-thumb {
+    width: 13px;
+    height: 13px;
+    border: 4px solid var(--accent);
+    border-radius: 50%;
+    background: var(--text);
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.24);
+  }
+
+  .range-input:focus-visible {
+    outline: 0;
+  }
+
+  .range-input:focus-visible::-webkit-slider-thumb {
+    box-shadow: 0 0 0 4px var(--accent-soft);
+  }
+
+  .slider-scale {
+    display: flex;
+    margin-top: 1px;
+    justify-content: space-between;
+    color: var(--dim);
+    font-family: var(--font-number);
+    font-size: 9px;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.03em;
+  }
+
+  .tap-row {
+    display: flex;
+    margin-top: 24px;
+    padding-top: 21px;
+    align-items: center;
+    gap: 14px;
+    border-top: 1px solid var(--line);
+  }
+
+  .tap-button {
+    display: inline-flex;
+    min-width: 150px;
+    height: 45px;
+    padding: 0 13px 0 15px;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 9px;
+    border: 1px solid var(--line-strong);
+    border-radius: 12px;
+    background: var(--cell);
+    color: var(--text);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    transition: transform 100ms ease, border-color 150ms ease, background 150ms ease, color 150ms ease;
+  }
+
+  .tap-button svg {
+    width: 17px;
+    height: 17px;
+    color: var(--accent);
+  }
+
+  .tap-button kbd {
+    margin-left: auto;
+  }
+
+  .tap-button:hover {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+  }
+
+  .tap-button:active,
+  .tap-button.is-tapped {
+    transform: scale(0.97);
+    border-color: var(--accent);
+    background: var(--accent);
+    color: var(--accent-contrast);
+  }
+
+  .tap-button:active svg,
+  .tap-button.is-tapped svg {
+    color: currentColor;
+  }
+
+  .tap-button:active kbd,
+  .tap-button.is-tapped kbd {
+    border-color: rgba(0, 0, 0, 0.2);
+    background: rgba(0, 0, 0, 0.13);
+    color: inherit;
+  }
+
+  .tap-hint {
+    margin: 0;
+    color: var(--muted);
+    font-size: 11px;
+    line-height: 1.45;
+  }
+
+  .stage-pane {
+    position: relative;
+    display: flex;
+    min-width: 0;
+    padding: 26px 30px 21px;
+    flex-direction: column;
+    overflow: hidden;
+    background:
+      radial-gradient(ellipse 105% 62% at 50% 110%, var(--stage-end), transparent 66%),
+      radial-gradient(ellipse 90% 52% at 50% 0%, var(--stage-start), transparent 70%),
+      var(--panel-deep);
+  }
+
+  .stage-pane::before {
+    position: absolute;
+    right: -80px;
+    bottom: -80px;
+    width: 250px;
+    height: 250px;
+    border: 1px solid var(--line);
+    border-radius: 50%;
+    content: "";
+    opacity: 0.35;
+  }
+
+  .stage-pane::after {
+    position: absolute;
+    right: -38px;
+    bottom: -38px;
+    width: 160px;
+    height: 160px;
+    border: 1px solid var(--line);
+    border-radius: 50%;
+    content: "";
+    opacity: 0.35;
+  }
+
+  .stage-glow {
+    position: absolute;
+    bottom: 3%;
+    left: 50%;
+    z-index: 0;
+    width: min(72%, 380px);
+    aspect-ratio: 1;
+    border-radius: 50%;
+    background: radial-gradient(circle, var(--accent-glow), transparent 66%);
+    opacity: 0;
+    pointer-events: none;
+    transform: translateX(-50%) scale(0.72);
+    filter: blur(8px);
+  }
+
+  .stage-top {
+    position: relative;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .status-pill {
+    display: inline-flex;
+    padding: 7px 11px;
+    align-items: center;
+    gap: 7px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.018);
+    color: var(--muted);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .status-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--dim);
+    transition: background 180ms ease, box-shadow 180ms ease;
+  }
+
+  body.is-playing .status-dot {
+    background: var(--green);
+    box-shadow: 0 0 0 4px var(--green-soft);
+    animation: statusPulse 1.35s ease-in-out infinite;
+  }
+
+  @keyframes statusPulse {
+    0%, 100% { opacity: 0.72; transform: scale(0.88); }
+    50% { opacity: 1; transform: scale(1); }
+  }
+
+  .timer-chip {
+    display: inline-flex;
+    padding: 6px 11px 6px 7px;
+    align-items: center;
+    gap: 9px;
+    border: 1px solid var(--line);
+    border-radius: 15px;
+    background: var(--cell);
+    color: var(--muted);
+    transition: border-color 180ms ease, background 180ms ease, color 180ms ease;
+  }
+
+  .timer-chip.is-running {
+    border-color: rgba(242, 163, 92, 0.3);
+    background: var(--accent-soft);
+  }
+
+  .timer-ring {
+    position: relative;
+    display: block;
+    width: 34px;
+    height: 34px;
+    flex: 0 0 34px;
+  }
+
+  .timer-ring svg {
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+    transform: rotate(-90deg);
+  }
+
+  .timer-ring-track,
+  .timer-ring-progress {
+    fill: none;
+    stroke-width: 2.4;
+  }
+
+  .timer-ring-track {
+    stroke: var(--line-strong);
+  }
+
+  .timer-ring-progress {
+    stroke: var(--accent);
+    stroke-linecap: round;
+    stroke-dasharray: 113.1;
+    stroke-dashoffset: 0;
+    transition: stroke 220ms ease;
+  }
+
+  .timer-ring::after {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: var(--accent);
+    content: "";
+    opacity: 0.7;
+    transform: translate(-50%, -50%);
+    transition: background 220ms ease;
+  }
+
+  .timer-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 46px;
+  }
+
+  .timer-kicker {
+    color: var(--dim);
+    font-size: 7px;
+    font-weight: 650;
+    line-height: 1;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+
+  .timer-value {
+    color: var(--text);
+    font-family: var(--font-number);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+    line-height: 1.05;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+  }
+
+  .timer-chip.is-ending {
+    border-color: var(--danger);
+    background: var(--danger-soft);
+    animation: timerWarning 1s ease-in-out infinite;
+  }
+
+  .timer-chip.is-ending .timer-ring-progress {
+    stroke: var(--danger);
+  }
+
+  .timer-chip.is-ending .timer-ring::after {
+    background: var(--danger);
+  }
+
+  .timer-chip.is-ending .timer-kicker,
+  .timer-chip.is-ending .timer-value {
+    color: var(--danger);
+  }
+
+  .timer-chip[hidden] {
+    display: none;
+  }
+
+  @keyframes timerWarning {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.58; }
+  }
+
+  .metronome-wrap {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    min-height: 250px;
+    flex: 1;
+    align-items: center;
+    justify-content: center;
+    padding: 2px 0 0;
+  }
+
+  .metronome-svg {
+    width: min(100%, 420px);
+    height: auto;
+    overflow: visible;
+  }
+
+  .arc-guide {
+    fill: none;
+    stroke: var(--line-strong);
+    stroke-width: 1;
+    stroke-dasharray: 1 7;
+    stroke-linecap: round;
+  }
+
+  .arc-tick {
+    stroke: var(--line-strong);
+    stroke-width: 1.25;
+    stroke-linecap: round;
+  }
+
+  .arc-tick.is-major {
+    stroke: var(--accent);
+    stroke-width: 1.8;
+    opacity: 0.72;
+  }
+
+  .arc-cap {
+    fill: var(--background);
+    stroke: var(--line-strong);
+    stroke-width: 1;
+  }
+
+  .metronome-halo {
+    fill: url(#haloGradient);
+    opacity: 0.7;
+  }
+
+  .pendulum-arm {
+    will-change: transform;
+  }
+
+  .pendulum-rod {
+    stroke: url(#rodGradient);
+    stroke-width: 3.5;
+    stroke-linecap: round;
+  }
+
+  .pendulum-weight {
+    fill: url(#weightGradient);
+    stroke: var(--line-strong);
+    stroke-width: 1;
+    filter: url(#weightShadow);
+  }
+
+  .pendulum-weight-line {
+    fill: var(--accent-contrast);
+    opacity: 0.28;
+  }
+
+  .pivot-halo {
+    fill: var(--panel-deep);
+    stroke: var(--line-strong);
+    stroke-width: 1;
+  }
+
+  .pivot-core {
+    fill: var(--accent);
+  }
+
+  .base-curve {
+    fill: none;
+    stroke: var(--line-strong);
+    stroke-width: 1;
+    stroke-linecap: round;
+  }
+
+  .stage-caption {
+    position: relative;
+    z-index: 2;
+    display: flex;
+    min-height: 33px;
+    padding-top: 14px;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 16px;
+    border-top: 1px solid var(--line);
+  }
+
+  .beat-readout {
+    display: flex;
+    align-items: baseline;
+    gap: 5px;
+    color: var(--muted);
+    font-size: 11px;
+    letter-spacing: 0.03em;
+  }
+
+  .beat-readout strong {
+    min-width: 24px;
+    color: var(--text);
+    font-family: var(--font-number);
+    font-size: 23px;
+    font-variant-numeric: tabular-nums;
+    font-weight: 500;
+    line-height: 0.9;
+    letter-spacing: -0.03em;
+  }
+
+  .beat-readout .readout-total {
+    color: var(--dim);
+    font-family: var(--font-number);
+    font-size: 10px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .mode-readout {
+    color: var(--dim);
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.07em;
+    text-align: right;
+    text-transform: uppercase;
+  }
+
+  .mode-readout.is-accent {
+    color: var(--accent);
+  }
+
+  .hero-footer {
+    position: relative;
+    z-index: 3;
+    display: flex;
+    padding: 20px 28px;
+    align-items: center;
+    gap: 26px;
+    border-top: 1px solid var(--line);
+    background: rgba(0, 0, 0, 0.05);
+  }
+
+  [data-theme="light"] .hero-footer {
+    background: rgba(255, 255, 255, 0.2);
+  }
+
+  .beats-block {
+    min-width: 0;
+    flex: 1;
+  }
+
+  .beats-head {
+    display: flex;
+    margin-bottom: 9px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .beats-label {
+    color: var(--muted);
+    font-size: 9px;
+    font-weight: 650;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+  }
+
+  .beats-tip {
+    color: var(--dim);
+    font-size: 9.5px;
+    letter-spacing: 0.02em;
+  }
+
+  .beat-row {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(44px, 1fr);
+    min-height: 62px;
+    padding-bottom: 2px;
+    align-items: stretch;
+    gap: 7px;
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+    scrollbar-width: thin;
+    scrollbar-color: var(--line-strong) transparent;
+  }
+
+  .beat-row::-webkit-scrollbar {
+    height: 4px;
+  }
+
+  .beat-row::-webkit-scrollbar-thumb {
+    border-radius: 99px;
+    background: var(--line-strong);
+  }
+
+  .beat-cell {
+    position: relative;
+    display: flex;
+    min-width: 44px;
+    height: 62px;
+    padding: 0 7px;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--cell);
+    color: var(--muted);
+    transition: background 85ms ease, border-color 85ms ease, color 85ms ease, transform 130ms ease, box-shadow 130ms ease;
+  }
+
+  .beat-cell:hover {
+    border-color: var(--line-strong);
+    background: var(--cell-hover);
+    color: var(--text);
+  }
+
+  .beat-cell.is-accent {
+    border-color: rgba(242, 163, 92, 0.42);
+    background: var(--accent-soft);
+    color: var(--accent);
+  }
+
+  [data-theme="light"] .beat-cell.is-accent {
+    border-color: rgba(199, 111, 40, 0.38);
+  }
+
+  .beat-cell.is-accent::before {
+    position: absolute;
+    top: 7px;
+    left: 50%;
+    width: 3px;
+    height: 3px;
+    border-radius: 50%;
+    background: currentColor;
+    content: "";
+    transform: translateX(-50%);
+  }
+
+  .beat-cell.is-active {
+    border-color: var(--accent);
+    background: var(--accent);
+    color: var(--accent-contrast);
+    box-shadow: 0 9px 26px var(--accent-glow);
+    transform: translateY(-2px);
+  }
+
+  .beat-cell.is-active.is-accent {
+    box-shadow: 0 9px 30px var(--accent-glow), inset 0 0 0 1px rgba(255, 255, 255, 0.22);
+  }
+
+  .beat-number {
+    font-family: var(--font-number);
+    font-size: 15px;
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+    line-height: 1;
+  }
+
+  .beat-subdots {
+    display: flex;
+    height: 5px;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+  }
+
+  .beat-subdots i {
+    display: block;
+    width: 3px;
+    height: 3px;
+    flex: 0 0 3px;
+    border-radius: 50%;
+    background: var(--dim);
+    opacity: 0.55;
+    transition: transform 80ms ease, background 80ms ease, opacity 80ms ease, box-shadow 80ms ease;
+  }
+
+  .beat-cell.is-accent .beat-subdots i {
+    background: var(--accent-deep);
+    opacity: 0.62;
+  }
+
+  .beat-cell.is-active .beat-subdots i {
+    background: var(--accent-contrast);
+    opacity: 0.3;
+  }
+
+  .beat-cell[data-subs="1"] .beat-subdots,
+  .beat-cell[data-subs="2"] .beat-subdots {
+    gap: 3px;
+  }
+
+  .beat-cell[data-subs="1"] .beat-subdots i,
+  .beat-cell[data-subs="2"] .beat-subdots i,
+  .beat-cell[data-subs="3"] .beat-subdots i,
+  .beat-cell[data-subs="4"] .beat-subdots i {
+    width: 4px;
+    height: 4px;
+    flex-basis: 4px;
+  }
+
+  .beat-cell[data-subs="9"] .beat-subdots i,
+  .beat-cell[data-subs="10"] .beat-subdots i,
+  .beat-cell[data-subs="11"] .beat-subdots i {
+    width: 2px;
+    height: 2px;
+    flex-basis: 2px;
+  }
+
+  .beat-subdots i.is-hot {
+    background: var(--accent-hot);
+    opacity: 1;
+    transform: scale(1.55);
+    box-shadow: 0 0 7px var(--accent-glow);
+  }
+
+  .beat-cell.is-active .beat-subdots i.is-hot {
+    background: var(--accent-contrast);
+    opacity: 1;
+    box-shadow: none;
+  }
+
+  .play-button {
+    display: inline-flex;
+    min-width: 174px;
+    height: 60px;
+    padding: 0 22px;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    border: 0;
+    border-radius: 16px;
+    background: var(--accent);
+    color: var(--accent-contrast);
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    box-shadow: 0 14px 38px var(--accent-glow);
+    transition: background 160ms ease, transform 160ms ease, box-shadow 160ms ease, color 160ms ease;
+  }
+
+  .play-button:hover {
+    background: var(--accent-hot);
+    box-shadow: 0 16px 44px var(--accent-glow);
+    transform: translateY(-1px);
+  }
+
+  .play-button:active {
+    transform: translateY(0) scale(0.985);
+  }
+
+  .play-button svg {
+    width: 20px;
+    height: 20px;
+  }
+
+  .play-button .stop-icon {
+    display: none;
+  }
+
+  .play-button.is-playing {
+    background: var(--text);
+    color: var(--bg);
+    box-shadow: 0 14px 38px rgba(0, 0, 0, 0.18);
+  }
+
+  .play-button.is-playing .play-icon {
+    display: none;
+  }
+
+  .play-button.is-playing .stop-icon {
+    display: block;
+  }
+
+  .play-button:disabled {
+    opacity: 0.65;
+  }
+
+  .settings {
+    position: relative;
+    margin-top: 20px;
+    padding: 28px 34px 30px;
+    border: 1px solid var(--line);
+    border-radius: 30px;
+    background: var(--panel);
+    box-shadow: 0 18px 54px rgba(0, 0, 0, 0.12);
+  }
+
+  .settings-head {
+    display: flex;
+    margin-bottom: 24px;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 18px;
+  }
+
+  .settings-title {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .settings-title h2 {
+    margin: 0;
+    font-size: 21px;
+    font-weight: 620;
+    line-height: 1.1;
+    letter-spacing: -0.025em;
+  }
+
+  .summary-chip {
+    padding: 8px 12px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--cell);
+    color: var(--accent);
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+  }
+
+  .division-section {
+    padding-top: 22px;
+    border-top: 1px solid var(--line);
+  }
+
+  .control-label-row {
+    display: flex;
+    margin-bottom: 12px;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 14px;
+  }
+
+  .control-label {
+    color: var(--text);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+  }
+
+  .control-note {
+    color: var(--dim);
+    font-size: 10px;
+    letter-spacing: 0.015em;
+  }
+
+  .division-grid {
+    display: grid;
+    grid-template-columns: repeat(11, minmax(0, 1fr));
+    gap: 7px;
+  }
+
+  .division-button {
+    position: relative;
+    display: flex;
+    height: 76px;
+    padding: 8px 3px 7px;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    border: 1px solid var(--line);
+    border-radius: 13px;
+    background: var(--cell);
+    color: var(--muted);
+    transition: border-color 150ms ease, background 150ms ease, color 150ms ease, transform 150ms ease;
+  }
+
+  .division-button:hover {
+    border-color: var(--line-strong);
+    background: var(--cell-hover);
+    color: var(--text);
+    transform: translateY(-1px);
+  }
+
+  .division-button.is-active {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+    color: var(--accent);
+    box-shadow: inset 0 0 0 1px var(--accent);
+  }
+
+  .division-button.is-active .division-name {
+    color: var(--accent);
+  }
+
+  .note-glyph {
+    width: 42px;
+    max-width: 100%;
+    height: 20px;
+    overflow: visible;
+  }
+
+  .note-glyph line,
+  .note-glyph ellipse {
+    vector-effect: non-scaling-stroke;
+  }
+
+  .division-name {
+    color: var(--muted);
+    font-size: 8.5px;
+    font-weight: 500;
+    line-height: 1;
+    letter-spacing: 0.01em;
+    white-space: nowrap;
+    transition: color 150ms ease;
+  }
+
+  .division-count {
+    position: absolute;
+    top: 6px;
+    right: 7px;
+    color: var(--dim);
+    font-family: var(--font-number);
+    font-size: 8px;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+    opacity: 0.8;
+  }
+
+  .division-button.is-active .division-count {
+    color: var(--accent);
+  }
+
+  .swing-row {
+    display: flex;
+    margin-top: 16px;
+    padding-top: 15px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    border-top: 1px solid var(--line);
+  }
+
+  .swing-copy {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .swing-copy strong {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+  }
+
+  .swing-copy span {
+    color: var(--dim);
+    font-size: 9.5px;
+    line-height: 1.35;
+  }
+
+  .switch {
+    position: relative;
+    width: 44px;
+    height: 25px;
+    flex: 0 0 44px;
+    padding: 0;
+    border: 0;
+    border-radius: 999px;
+    background: var(--line-strong);
+    transition: background 160ms ease, opacity 160ms ease;
+  }
+
+  .switch::after {
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 19px;
+    height: 19px;
+    border-radius: 50%;
+    background: var(--text);
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.18);
+    content: "";
+    transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1), background 160ms ease;
+  }
+
+  .switch[aria-checked="true"] {
+    background: var(--accent);
+  }
+
+  .switch[aria-checked="true"]::after {
+    background: var(--accent-contrast);
+    transform: translateX(19px);
+  }
+
+  .settings-columns {
+    display: grid;
+    margin-top: 24px;
+    padding-top: 24px;
+    grid-template-columns: minmax(0, 1.02fr) minmax(0, 0.98fr) minmax(0, 0.84fr);
+    border-top: 1px solid var(--line);
+  }
+
+  .setting-column {
+    min-width: 0;
+    padding: 0 30px;
+  }
+
+  .setting-column:first-child {
+    padding-left: 0;
+  }
+
+  .setting-column:last-child {
+    padding-right: 0;
+  }
+
+  .setting-column + .setting-column {
+    border-left: 1px solid var(--line);
+  }
+
+  .setting-column h3 {
+    margin: 0 0 18px;
+    color: var(--muted);
+    font-size: 9.5px;
+    font-weight: 650;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+  }
+
+  .row-between {
+    display: flex;
+    margin-bottom: 12px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .row-label {
+    color: var(--muted);
+    font-size: 11px;
+    letter-spacing: 0.01em;
+  }
+
+  .stepper {
+    display: inline-flex;
+    padding: 3px;
+    align-items: center;
+    gap: 1px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--cell);
+  }
+
+  .stepper button {
+    display: inline-flex;
+    width: 28px;
+    height: 27px;
+    padding: 0;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: 7px;
+    background: transparent;
+    color: var(--muted);
+    transition: background 130ms ease, color 130ms ease;
+  }
+
+  .stepper button:hover {
+    background: var(--cell-hover);
+    color: var(--text);
+  }
+
+  .stepper svg {
+    width: 13px;
+    height: 13px;
+  }
+
+  .stepper output {
+    min-width: 30px;
+    color: var(--text);
+    font-family: var(--font-number);
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+    text-align: center;
+  }
+
+  .quick-beats {
+    display: flex;
+    margin: 0 0 17px;
+    flex-wrap: wrap;
+    gap: 5px;
+  }
+
+  .quick-beats button {
+    width: 31px;
+    height: 27px;
+    padding: 0;
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    background: transparent;
+    color: var(--dim);
+    font-family: var(--font-number);
+    font-size: 10px;
+    font-variant-numeric: tabular-nums;
+    transition: color 130ms ease, border-color 130ms ease, background 130ms ease;
+  }
+
+  .quick-beats button:hover {
+    border-color: var(--line-strong);
+    color: var(--text);
+  }
+
+  .quick-beats button.is-active {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+    color: var(--accent);
+  }
+
+  .accent-row {
+    display: flex;
+    padding-top: 16px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    border-top: 1px solid var(--line);
+  }
+
+  .accent-copy {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .accent-copy strong {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+  }
+
+  .accent-copy span {
+    color: var(--dim);
+    font-size: 9.5px;
+    line-height: 1.35;
+  }
+
+  .inline-hint {
+    margin: 12px 0 0;
+    color: var(--dim);
+    font-size: 9.5px;
+    line-height: 1.5;
+  }
+
+  .sound-grid {
+    display: grid;
+    margin-bottom: 16px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .sound-button {
+    display: flex;
+    min-width: 0;
+    padding: 9px 9px;
+    align-items: center;
+    gap: 7px;
+    border: 1px solid var(--line);
+    border-radius: 9px;
+    background: transparent;
+    color: var(--muted);
+    text-align: left;
+    transition: border-color 130ms ease, background 130ms ease, color 130ms ease;
+  }
+
+  .sound-button:hover {
+    border-color: var(--line-strong);
+    background: var(--cell);
+    color: var(--text);
+  }
+
+  .sound-button.is-active {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+    color: var(--text);
+  }
+
+  .sound-wave {
+    display: flex;
+    width: 16px;
+    height: 13px;
+    align-items: center;
+    gap: 2px;
+    color: var(--dim);
+  }
+
+  .sound-button.is-active .sound-wave {
+    color: var(--accent);
+  }
+
+  .sound-wave i {
+    width: 2px;
+    border-radius: 99px;
+    background: currentColor;
+  }
+
+  .sound-wave i:nth-child(1) { height: 5px; }
+  .sound-wave i:nth-child(2) { height: 12px; }
+  .sound-wave i:nth-child(3) { height: 8px; }
+
+  .sound-button span {
+    overflow: hidden;
+    font-size: 10.5px;
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .sound-button small {
+    margin-left: auto;
+    color: var(--dim);
+    font-size: 7px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+  }
+
+  .volume-row {
+    display: flex;
+    padding-top: 14px;
+    align-items: center;
+    gap: 8px;
+    border-top: 1px solid var(--line);
+  }
+
+  .volume-row svg {
+    width: 14px;
+    height: 14px;
+    flex: 0 0 auto;
+    color: var(--dim);
+  }
+
+  .volume-row .range-input {
+    flex: 1;
+    height: 24px;
+  }
+
+  .volume-row output {
+    min-width: 32px;
+    color: var(--muted);
+    font-family: var(--font-number);
+    font-size: 9px;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+  }
+
+  .timer-options {
+    display: flex;
+    margin-bottom: 18px;
+    flex-wrap: wrap;
+    gap: 5px;
+  }
+
+  .timer-options button {
+    min-width: 35px;
+    height: 28px;
+    padding: 0 8px;
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    background: transparent;
+    color: var(--dim);
+    font-family: var(--font-number);
+    font-size: 9px;
+    font-variant-numeric: tabular-nums;
+    transition: color 130ms ease, border-color 130ms ease, background 130ms ease;
+  }
+
+  .timer-options button:hover {
+    border-color: var(--line-strong);
+    color: var(--text);
+  }
+
+  .timer-options button.is-active {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+    color: var(--accent);
+  }
+
+  .timer-note {
+    margin: -6px 0 18px;
+    color: var(--dim);
+    font-size: 9.5px;
+    line-height: 1.45;
+  }
+
+  .shortcut-list {
+    display: grid;
+    padding-top: 15px;
+    gap: 8px;
+    border-top: 1px solid var(--line);
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .shortcut {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--dim);
+    font-size: 9px;
+    white-space: nowrap;
+  }
+
+  .shortcut kbd {
+    min-width: 19px;
+    height: 19px;
+    padding: 0 5px;
+    font-size: 8px;
+  }
+
+  .page-footer {
+    display: flex;
+    padding: 18px 8px 0;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+    color: var(--dim);
+    font-size: 9.5px;
+    letter-spacing: 0.03em;
+  }
+
+  .footer-tech {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+  }
+
+  .footer-tech::before {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--green);
+    content: "";
+    box-shadow: 0 0 0 3px var(--green-soft);
+  }
+
+  .toast {
+    position: fixed;
+    bottom: 28px;
+    left: 50%;
+    z-index: 3000;
+    max-width: calc(100vw - 36px);
+    padding: 10px 15px;
+    border: 1px solid var(--line-strong);
+    border-radius: 10px;
+    background: var(--panel-raised);
+    color: var(--text);
+    font-size: 11px;
+    line-height: 1.4;
+    opacity: 0;
+    pointer-events: none;
+    transform: translate(-50%, 12px);
+    transition: opacity 180ms ease, transform 180ms ease;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.24);
+  }
+
+  .toast.is-visible {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+
+  @media (max-width: 1240px) {
+    .topbar,
+    .shell {
+      padding-right: 28px;
+      padding-left: 28px;
+    }
+
+    .tempo-pane {
+      padding-right: 34px;
+      padding-left: 34px;
+    }
+
+    .division-button {
+      height: 72px;
+    }
+
+    .division-name {
+      font-size: 8px;
+    }
+  }
+
+  @media (max-width: 1020px) {
+    .hero-main {
+      grid-template-columns: minmax(0, 1fr) minmax(0, 0.84fr);
+    }
+
+    .bpm-number {
+      font-size: clamp(76px, 10.8vw, 118px);
+    }
+
+    .settings-columns {
+      grid-template-columns: 1fr 1fr;
+    }
+
+    .setting-column {
+      padding: 0 24px;
+    }
+
+    .setting-column:first-child {
+      padding-left: 0;
+    }
+
+    .setting-column:nth-child(2) {
+      padding-right: 0;
+      border-left: 1px solid var(--line);
+    }
+
+    .setting-column:nth-child(3) {
+      margin-top: 24px;
+      padding: 24px 0 0;
+      border-top: 1px solid var(--line);
+      border-left: 0;
+      grid-column: 1 / -1;
+    }
+
+    .setting-column:nth-child(3) .shortcut-list {
+      grid-template-columns: repeat(4, 1fr);
+    }
+  }
+
+  @media (max-width: 860px) {
+    .hero-main {
+      grid-template-columns: 1fr;
+    }
+
+    .tempo-pane {
+      padding: 32px 30px 28px;
+      border-right: 0;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .bpm-number {
+      font-size: clamp(88px, 17vw, 134px);
+    }
+
+    .stage-pane {
+      min-height: 380px;
+      padding: 24px 30px 20px;
+    }
+
+    .metronome-wrap {
+      min-height: 280px;
+    }
+
+    .metronome-svg {
+      width: min(100%, 390px);
+    }
+
+    .hero-footer {
+      flex-wrap: wrap;
+    }
+
+    .play-button {
+      min-width: 148px;
+    }
+
+    .division-grid {
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+    }
+
+    .division-button {
+      height: 70px;
+    }
+  }
+
+  @media (max-width: 640px) {
+    .topbar {
+      min-height: 70px;
+      padding: 16px 16px 12px;
+    }
+
+    .shell {
+      padding: 0 16px 24px;
+    }
+
+    .brand-mark {
+      width: 34px;
+      height: 34px;
+    }
+
+    .brand-name {
+      font-size: 13px;
+    }
+
+    .brand-sub {
+      font-size: 8px;
+    }
+
+    .top-hint {
+      display: none;
+    }
+
+    .icon-button {
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+    }
+
+    .hero {
+      border-radius: 24px;
+    }
+
+    .tempo-pane {
+      padding: 24px 20px 22px;
+    }
+
+    .tempo-head {
+      margin-bottom: 18px;
+    }
+
+    .tempo-tag {
+      max-width: 60%;
+      font-size: 9.5px;
+    }
+
+    .bpm-line {
+      gap: 8px;
+    }
+
+    .round-button {
+      width: 38px;
+      height: 38px;
+      flex-basis: 38px;
+    }
+
+    .bpm-number {
+      width: 3.4ch;
+      max-width: 100%;
+      font-size: clamp(74px, 23vw, 106px);
+    }
+
+    .bpm-unit {
+      margin-top: 6px;
+      padding-bottom: 0;
+      font-size: 8px;
+    }
+
+    .bpm-caption {
+      margin: 14px 0 0;
+      font-size: 10px;
+    }
+
+    .slider-block {
+      margin-top: 17px;
+    }
+
+    .tap-row {
+      margin-top: 18px;
+      padding-top: 17px;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .tap-button {
+      min-width: 140px;
+    }
+
+    .tap-hint {
+      flex: 1 0 100%;
+      font-size: 10px;
+    }
+
+    .stage-pane {
+      min-height: 350px;
+      padding: 18px 16px 16px;
+    }
+
+    .stage-caption {
+      gap: 10px;
+    }
+
+    .metronome-wrap {
+      min-height: 245px;
+    }
+
+    .hero-footer {
+      padding: 16px;
+      gap: 14px;
+    }
+
+    .beat-row {
+      gap: 5px;
+    }
+
+    .beat-row {
+      grid-auto-columns: minmax(40px, 1fr);
+    }
+
+    .beat-cell {
+      height: 56px;
+      min-width: 40px;
+      padding: 0 4px;
+    }
+
+    .play-button {
+      width: 100%;
+      height: 54px;
+      order: 2;
+    }
+
+    .beats-block {
+      width: 100%;
+      order: 1;
+    }
+
+    .settings {
+      padding: 22px 20px 24px;
+      border-radius: 24px;
+    }
+
+    .settings-head {
+      margin-bottom: 20px;
+      align-items: flex-start;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .summary-chip {
+      font-size: 9.5px;
+    }
+
+    .division-section {
+      padding-top: 18px;
+    }
+
+    .control-label-row {
+      align-items: flex-start;
+      flex-direction: column;
+      gap: 5px;
+    }
+
+    .division-grid {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 6px;
+    }
+
+    .division-button {
+      height: 67px;
+    }
+
+    .swing-row {
+      align-items: flex-start;
+    }
+
+    .swing-copy span {
+      max-width: 250px;
+    }
+
+    .settings-columns {
+      margin-top: 20px;
+      padding-top: 20px;
+      grid-template-columns: 1fr;
+    }
+
+    .setting-column {
+      padding: 0;
+    }
+
+    .setting-column:nth-child(2),
+    .setting-column:nth-child(3) {
+      margin-top: 22px;
+      padding-top: 22px;
+      border-top: 1px solid var(--line);
+      border-left: 0;
+    }
+
+    .setting-column:nth-child(2) {
+      padding-right: 0;
+    }
+
+    .setting-column:nth-child(3) {
+      margin-top: 22px;
+      padding-top: 22px;
+      grid-column: auto;
+    }
+
+    .setting-column:nth-child(3) .shortcut-list {
+      grid-template-columns: 1fr 1fr;
+    }
+
+    .sound-grid {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 5px;
+    }
+
+    .sound-button {
+      padding: 8px 5px;
+      flex-direction: column;
+      gap: 4px;
+      text-align: center;
+    }
+
+    .sound-button small {
+      display: none;
+    }
+
+    .sound-button span {
+      font-size: 9px;
+    }
+
+    .shortcut-list {
+      grid-template-columns: 1fr 1fr;
+    }
+
+    .page-footer {
+      align-items: flex-start;
+      flex-direction: column;
+      gap: 7px;
+      padding-top: 16px;
+    }
+
+    .toast {
+      bottom: 18px;
+    }
+  }
+
+  @media (max-width: 370px) {
+    .bpm-number {
+      font-size: 70px;
+    }
+
+    .sound-grid {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+
+
+  /* ------------------------------------------------------------------
+     Performance / presentation mode
+     ------------------------------------------------------------------ */
+  .presentation-chrome {
+    display: none;
+  }
+
+  body.is-presenting {
+    height: 100vh;
+    height: 100dvh;
+    overflow: hidden;
+    background:
+      radial-gradient(ellipse 72% 58% at 50% -14%, var(--accent-glow), transparent 64%),
+      var(--bg);
+  }
+
+  body.is-presenting .topbar,
+  body.is-presenting .settings,
+  body.is-presenting .page-footer {
+    display: none;
+  }
+
+  body.is-presenting .shell {
+    display: flex;
+    width: 100%;
+    height: 100vh;
+    height: 100dvh;
+    max-width: none;
+    margin: 0;
+    padding: clamp(10px, 2.2vh, 22px) clamp(14px, 3vw, 46px) clamp(12px, 2.2vh, 24px);
+    flex-direction: column;
+    gap: clamp(8px, 1.4vh, 16px);
+  }
+
+  body.is-presenting .presentation-chrome {
+    display: flex;
+    min-height: 36px;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+  }
+
+  .presentation-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .presentation-mark {
+    display: flex;
+    width: 28px;
+    height: 28px;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--panel);
+  }
+
+  .presentation-mark i {
+    display: block;
+    width: 2px;
+    border-radius: 99px;
+    background: var(--accent);
+    transform-origin: center;
+    animation: equalize 1.15s ease-in-out infinite;
+    animation-play-state: paused;
+  }
+
+  .presentation-mark i:nth-child(1) {
+    height: 8px;
+    animation-delay: -0.35s;
+  }
+
+  .presentation-mark i:nth-child(2) {
+    height: 15px;
+    animation-delay: -0.7s;
+  }
+
+  .presentation-mark i:nth-child(3) {
+    height: 10px;
+    animation-delay: -0.1s;
+  }
+
+  body.is-playing.is-presenting .presentation-mark i {
+    animation-play-state: running;
+  }
+
+  .presentation-name {
+    color: var(--text);
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1;
+    letter-spacing: 0.2em;
+  }
+
+  .presentation-name small {
+    margin-left: 8px;
+    color: var(--muted);
+    font-size: 8px;
+    font-weight: 500;
+    letter-spacing: 0.12em;
+  }
+
+  .presentation-hints {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    color: var(--dim);
+    font-size: 9px;
+  }
+
+  .presentation-hints span {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    white-space: nowrap;
+  }
+
+  .presentation-hints kbd {
+    height: 19px;
+    min-width: 19px;
+    padding: 0 5px;
+    font-size: 8px;
+  }
+
+  .presentation-exit {
+    display: inline-flex;
+    height: 34px;
+    padding: 0 11px;
+    align-items: center;
+    gap: 6px;
+    border: 1px solid var(--line);
+    border-radius: 9px;
+    background: var(--panel);
+    color: var(--muted);
+    font-size: 9.5px;
+    font-weight: 550;
+    letter-spacing: 0.02em;
+    transition: border-color 150ms ease, color 150ms ease, background 150ms ease;
+  }
+
+  .presentation-exit:hover {
+    border-color: var(--line-strong);
+    background: var(--panel-raised);
+    color: var(--text);
+  }
+
+  .presentation-exit svg {
+    width: 14px;
+    height: 14px;
+  }
+
+  body.is-presenting .hero {
+    display: flex;
+    width: 100%;
+    min-height: 0;
+    flex: 1;
+    flex-direction: column;
+    border-radius: clamp(18px, 2.2vw, 34px);
+  }
+
+  body.is-presenting .hero-main {
+    min-height: 0;
+    flex: 1;
+    grid-template-columns: minmax(0, 0.94fr) minmax(0, 1.06fr);
+  }
+
+  body.is-presenting .tempo-pane {
+    padding: clamp(18px, 3vh, 40px) clamp(18px, 3vw, 48px);
+    justify-content: center;
+    border-right: 1px solid var(--line);
+  }
+
+  body.is-presenting .tempo-head {
+    margin-bottom: clamp(8px, 1.8vh, 22px);
+    justify-content: center;
+  }
+
+  body.is-presenting .tempo-head .eyebrow {
+    display: none;
+  }
+
+  body.is-presenting .tempo-tag {
+    max-width: none;
+    padding: 8px 14px;
+    font-size: 11px;
+  }
+
+  body.is-presenting .bpm-line {
+    gap: clamp(12px, 2vw, 28px);
+  }
+
+  body.is-presenting .round-button {
+    width: clamp(44px, 4vw, 58px);
+    height: clamp(44px, 4vw, 58px);
+    flex-basis: clamp(44px, 4vw, 58px);
+  }
+
+  body.is-presenting .round-button svg {
+    width: 22px;
+    height: 22px;
+  }
+
+  body.is-presenting .bpm-number {
+    width: 3.4ch;
+    height: 1em;
+    max-width: 100%;
+    font-size: clamp(130px, min(15vw, 32vh), 320px);
+    line-height: 1em;
+  }
+
+  body.is-presenting .bpm-unit {
+    margin-top: clamp(6px, 1.2vh, 13px);
+    font-size: 11px;
+  }
+
+  body.is-presenting .bpm-caption,
+  body.is-presenting .slider-block,
+  body.is-presenting .tap-row {
+    display: none;
+  }
+
+  body.is-presenting .stage-pane {
+    min-height: 0;
+    padding: clamp(14px, 2.4vh, 24px) clamp(18px, 2.6vw, 38px) clamp(12px, 2vh, 22px);
+  }
+
+  body.is-presenting .stage-caption {
+    padding-top: clamp(8px, 1.3vh, 14px);
+  }
+
+  body.is-presenting .beat-readout strong {
+    font-size: 28px;
+  }
+
+  body.is-presenting .mode-readout {
+    font-size: 10px;
+  }
+
+  body.is-presenting .metronome-wrap {
+    min-height: 0;
+    padding: 0;
+  }
+
+  body.is-presenting .metronome-svg {
+    width: min(100%, 590px);
+  }
+
+  body.is-presenting .hero-footer {
+    padding: clamp(12px, 1.9vh, 20px) clamp(16px, 2.6vw, 32px);
+    gap: clamp(14px, 2vw, 26px);
+  }
+
+  body.is-presenting .beats-head {
+    margin-bottom: clamp(6px, 1vh, 10px);
+  }
+
+  body.is-presenting .beat-cell {
+    height: clamp(54px, 7.4vh, 74px);
+  }
+
+  body.is-presenting .beat-number {
+    font-size: 17px;
+  }
+
+  body.is-presenting .play-button {
+    height: clamp(54px, 7.2vh, 70px);
+    min-width: clamp(154px, 13vw, 216px);
+    font-size: 15px;
+  }
+
+  body.is-presenting .timer-chip {
+    transform: scale(1.04);
+    transform-origin: right center;
+  }
+
+  @media (max-width: 1100px) {
+    body.is-presenting .presentation-hints {
+      display: none;
+    }
+
+    body.is-presenting .tempo-pane {
+      padding-right: clamp(14px, 2.8vw, 28px);
+      padding-left: clamp(14px, 2.8vw, 28px);
+    }
+
+    body.is-presenting .bpm-line {
+      gap: 10px;
+    }
+
+    body.is-presenting .round-button {
+      width: 42px;
+      height: 42px;
+      flex-basis: 42px;
+    }
+
+    body.is-presenting .hero-footer {
+      gap: 14px;
+    }
+
+    body.is-presenting .play-button {
+      min-width: 142px;
+    }
+  }
+
+  @media (max-width: 860px) {
+    body.is-presenting .shell {
+      padding: max(8px, env(safe-area-inset-top)) 12px max(8px, env(safe-area-inset-bottom));
+      gap: 7px;
+    }
+
+    body.is-presenting .presentation-chrome {
+      min-height: 30px;
+    }
+
+    body.is-presenting .presentation-name small {
+      display: none;
+    }
+
+    body.is-presenting .presentation-exit {
+      height: 30px;
+      padding: 0 9px;
+    }
+
+    body.is-presenting .presentation-exit span {
+      display: none;
+    }
+
+    body.is-presenting .hero-main {
+      grid-template-columns: 1fr;
+      grid-template-rows: auto minmax(0, 1fr);
+    }
+
+    body.is-presenting .tempo-pane {
+      padding: clamp(8px, 1.7vh, 16px) 14px 0;
+      border-right: 0;
+      border-bottom: 0;
+    }
+
+    body.is-presenting .tempo-head {
+      margin-bottom: 4px;
+    }
+
+    body.is-presenting .tempo-tag {
+      padding: 4px 8px;
+      font-size: 8px;
+    }
+
+    body.is-presenting .bpm-number {
+      width: 3.4ch;
+      height: 1em;
+      font-size: clamp(88px, min(31vw, 18vh), 180px);
+      line-height: 1em;
+    }
+
+    body.is-presenting .bpm-line {
+      gap: 8px;
+    }
+
+    body.is-presenting .round-button {
+      width: 36px;
+      height: 36px;
+      flex-basis: 36px;
+    }
+
+    body.is-presenting .round-button svg {
+      width: 17px;
+      height: 17px;
+    }
+
+    body.is-presenting .bpm-unit {
+      margin-top: 3px;
+      font-size: 7.5px;
+    }
+
+    body.is-presenting .stage-pane {
+      min-height: 0;
+      padding: 0 14px 6px;
+    }
+
+    body.is-presenting .stage-top {
+      padding: 0 2px;
+    }
+
+    body.is-presenting .metronome-svg {
+      width: min(84%, 350px);
+    }
+
+    body.is-presenting .stage-caption {
+      padding-top: 6px;
+    }
+
+    body.is-presenting .beat-readout {
+      font-size: 10px;
+    }
+
+    body.is-presenting .beat-readout strong {
+      font-size: 22px;
+    }
+
+    body.is-presenting .mode-readout {
+      font-size: 9px;
+    }
+
+    body.is-presenting .hero-footer {
+      padding: 7px 10px 10px;
+      flex-wrap: nowrap;
+      gap: 10px;
+    }
+
+    body.is-presenting .beats-block {
+      width: auto;
+      min-width: 0;
+      order: 0;
+    }
+
+    body.is-presenting .beats-head {
+      display: none;
+    }
+
+    body.is-presenting .beat-cell {
+      height: 46px;
+      min-width: 36px;
+      gap: 5px;
+    }
+
+    body.is-presenting .beat-number {
+      font-size: 13px;
+    }
+
+    body.is-presenting .play-button {
+      width: auto;
+      min-width: 104px;
+      height: 48px;
+      padding: 0 14px;
+      order: 0;
+      font-size: 12px;
+    }
+
+    body.is-presenting .timer-chip {
+      padding: 4px 8px 4px 5px;
+      gap: 6px;
+      transform: none;
+    }
+
+    body.is-presenting .timer-ring {
+      width: 28px;
+      height: 28px;
+      flex-basis: 28px;
+    }
+
+    body.is-presenting .timer-value {
+      font-size: 10px;
+    }
+
+    body.is-presenting .timer-kicker {
+      font-size: 6px;
+    }
+  }
+
+  @media (max-width: 380px) {
+    body.is-presenting .bpm-number {
+      height: 1em;
+      font-size: clamp(82px, 29vw, 120px);
+      line-height: 1em;
+    }
+
+    body.is-presenting .round-button {
+      width: 32px;
+      height: 32px;
+      flex-basis: 32px;
+    }
+
+    body.is-presenting .play-button {
+      min-width: 92px;
+      padding: 0 10px;
+    }
+  }
+
+  @media (max-height: 620px) and (min-width: 600px) {
+    body.is-presenting .shell {
+      padding: 7px 14px 8px;
+      gap: 6px;
+    }
+
+    body.is-presenting .presentation-chrome {
+      min-height: 26px;
+    }
+
+    body.is-presenting .presentation-hints {
+      display: none;
+    }
+
+    body.is-presenting .presentation-exit {
+      height: 26px;
+    }
+
+    body.is-presenting .hero-main {
+      grid-template-columns: minmax(0, 0.88fr) minmax(0, 1.12fr);
+      grid-template-rows: minmax(0, 1fr);
+    }
+
+    body.is-presenting .tempo-pane {
+      padding: 7px 20px;
+      border-right: 1px solid var(--line);
+      border-bottom: 0;
+    }
+
+    body.is-presenting .tempo-head {
+      margin-bottom: 4px;
+    }
+
+    body.is-presenting .bpm-number {
+      height: 1em;
+      font-size: clamp(70px, 22vh, 150px);
+      line-height: 1em;
+    }
+
+    body.is-presenting .bpm-line {
+      gap: 10px;
+    }
+
+    body.is-presenting .round-button {
+      width: 34px;
+      height: 34px;
+      flex-basis: 34px;
+    }
+
+    body.is-presenting .stage-pane {
+      padding: 4px 14px 4px;
+    }
+
+    body.is-presenting .metronome-wrap {
+      min-height: 0;
+    }
+
+    body.is-presenting .metronome-svg {
+      width: min(72%, 300px);
+      max-height: 42vh;
+    }
+
+    body.is-presenting .stage-caption {
+      padding-top: 4px;
+    }
+
+    body.is-presenting .hero-footer {
+      padding: 5px 12px 7px;
+      gap: 10px;
+      flex-wrap: nowrap;
+    }
+
+    body.is-presenting .beats-head {
+      display: none;
+    }
+
+    body.is-presenting .beats-block {
+      width: auto;
+      min-width: 0;
+    }
+
+    body.is-presenting .beat-cell {
+      height: 38px;
+      min-width: 34px;
+      gap: 3px;
+    }
+
+    body.is-presenting .beat-number {
+      font-size: 12px;
+    }
+
+    body.is-presenting .play-button {
+      height: 40px;
+      min-width: 100px;
+      padding: 0 12px;
+      font-size: 11px;
+    }
+
+    body.is-presenting .timer-chip {
+      padding: 3px 7px 3px 4px;
+    }
+
+    body.is-presenting .timer-ring {
+      width: 24px;
+      height: 24px;
+      flex-basis: 24px;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+</style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand" aria-label="Pulse 节拍器">
+      <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+      <span class="brand-copy">
+        <span class="brand-name">PULSE</span>
+        <span class="brand-sub">节拍器 · METRONOME</span>
+      </span>
+    </div>
+    <div class="topbar-actions">
+      <span class="top-hint"><kbd>Space</kbd> 开始 / 停止</span>
+      <button class="icon-button" id="themeBtn" type="button" aria-label="切换到浅色模式" title="切换明暗主题">
+        <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="4"></circle>
+          <path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.66 6.34l1.41-1.41"></path>
+        </svg>
+        <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M21 12.79A8.5 8.5 0 1 1 11.21 3 6.5 6.5 0 0 0 21 12.79Z"></path>
+        </svg>
+      </button>
+      <button class="icon-button" id="fullscreenBtn" type="button" aria-label="进入演奏大屏" title="演奏大屏">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M8 3H3v5M16 3h5v5M21 16v5h-5M3 16v5h5"></path>
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <main class="shell">
+    <div class="presentation-chrome" id="presentationChrome">
+      <div class="presentation-brand" aria-label="Pulse 演奏大屏">
+        <span class="presentation-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+        <span class="presentation-name">PULSE <small>演奏大屏</small></span>
+      </div>
+      <div class="presentation-hints" aria-hidden="true">
+        <span><kbd>Space</kbd> 开始 / 停止</span>
+        <span><kbd>↑</kbd><kbd>↓</kbd> 调速</span>
+        <span><kbd>F</kbd> 退出</span>
+      </div>
+      <button class="presentation-exit" id="presentationExit" type="button" aria-label="退出演奏大屏">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M9 4H4v5M15 4h5v5M20 15v5h-5M4 15v5h5"></path>
+        </svg>
+        <span>退出大屏</span>
+      </button>
+    </div>
+
+    <section class="hero" aria-label="节拍器主控制区">
+      <div class="hero-main">
+        <section class="tempo-pane" aria-labelledby="tempoHeading">
+          <div class="tempo-head">
+            <span class="eyebrow"><span class="eyebrow-line"></span><span id="tempoHeading">速度 · TEMPO</span></span>
+            <span class="tempo-tag" id="tempoTag">Allegro · 快板</span>
+          </div>
+
+          <div class="bpm-line">
+            <button class="round-button" id="bpmDec" type="button" aria-label="降低 1 BPM" title="降低速度">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14"></path></svg>
+            </button>
+            <div class="bpm-value">
+              <input class="bpm-number" id="bpmInput" type="text" inputmode="numeric" pattern="[0-9]*" value="120" role="spinbutton" aria-label="每分钟节拍数 BPM" aria-valuemin="20" aria-valuemax="300" aria-valuenow="120" autocomplete="off" spellcheck="false">
+              <span class="bpm-unit">BPM</span>
+            </div>
+            <button class="round-button" id="bpmInc" type="button" aria-label="增加 1 BPM" title="提高速度">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
+            </button>
+          </div>
+
+          <p class="bpm-caption">
+            <span id="bpmCaption">每分钟 120 拍</span>
+            <span class="caption-dot" aria-hidden="true"></span>
+            <span id="beatUnitCaption">每拍 500 ms</span>
+          </p>
+
+          <div class="slider-block">
+            <input class="range-input" id="bpmSlider" type="range" min="20" max="300" step="1" value="120" aria-label="BPM 速度滑块">
+            <div class="slider-scale" aria-hidden="true">
+              <span>20</span><span>60</span><span>120</span><span>180</span><span>240</span><span>300</span>
+            </div>
+          </div>
+
+          <div class="tap-row">
+            <button class="tap-button" id="tapBtn" type="button" title="连续点击以测算速度，快捷键 T">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="2.4"></circle>
+                <path d="M7.5 7.5a6.4 6.4 0 0 0 0 9M16.5 7.5a6.4 6.4 0 0 1 0 9M4.6 4.6a10.5 10.5 0 0 0 0 14.8M19.4 4.6a10.5 10.5 0 0 1 0 14.8"></path>
+              </svg>
+              <span id="tapLabel">点击测速</span>
+              <kbd>T</kbd>
+            </button>
+            <p class="tap-hint" id="tapHint">连续轻点，跟随你的速度</p>
+          </div>
+        </section>
+
+        <section class="stage-pane" aria-label="节拍指示">
+          <div class="stage-glow" id="stageGlow" aria-hidden="true"></div>
+          <div class="stage-top">
+            <div class="status-pill" aria-live="polite"><span class="status-dot" aria-hidden="true"></span><span id="statusText">待机</span></div>
+            <div class="timer-chip" id="timerChip" role="timer" aria-label="自动停止计时器" hidden>
+              <span class="timer-ring" aria-hidden="true">
+                <svg viewBox="0 0 44 44">
+                  <circle class="timer-ring-track" cx="22" cy="22" r="18"></circle>
+                  <circle class="timer-ring-progress" id="timerRingProgress" cx="22" cy="22" r="18"></circle>
+                </svg>
+              </span>
+              <span class="timer-copy">
+                <span class="timer-kicker" id="timerKicker">自动停止</span>
+                <span class="timer-value" id="timerText">05:00</span>
+              </span>
+            </div>
+          </div>
+
+          <div class="metronome-wrap">
+            <svg class="metronome-svg" viewBox="0 0 400 300" aria-hidden="true">
+              <defs>
+                <radialGradient id="haloGradient" cx="50%" cy="72%" r="58%">
+                  <stop offset="0%" style="stop-color: var(--accent); stop-opacity: 0.11;"></stop>
+                  <stop offset="100%" style="stop-color: var(--accent); stop-opacity: 0;"></stop>
+                </radialGradient>
+                <linearGradient id="rodGradient" gradientUnits="userSpaceOnUse" x1="200" y1="260" x2="200" y2="62">
+                  <stop offset="0%" style="stop-color: var(--dim); stop-opacity: 0.38;"></stop>
+                  <stop offset="70%" style="stop-color: var(--accent); stop-opacity: 0.72;"></stop>
+                  <stop offset="100%" style="stop-color: var(--accent-hot); stop-opacity: 1;"></stop>
+                </linearGradient>
+                <linearGradient id="weightGradient" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0%" style="stop-color: var(--accent-hot); stop-opacity: 0.98;"></stop>
+                  <stop offset="55%" style="stop-color: var(--accent); stop-opacity: 0.94;"></stop>
+                  <stop offset="100%" style="stop-color: var(--accent-deep); stop-opacity: 0.9;"></stop>
+                </linearGradient>
+                <filter id="weightShadow" x="-40%" y="-40%" width="180%" height="180%">
+                  <feDropShadow dx="0" dy="6" stdDeviation="8" flood-color="#000" flood-opacity="0.28"></feDropShadow>
+                </filter>
+              </defs>
+              <circle class="metronome-halo" cx="200" cy="192" r="164"></circle>
+              <path class="arc-guide" d="M 96.7 65.7 A 220 220 0 0 1 303.3 65.7"></path>
+              <g id="arcTicks" class="arc-ticks"></g>
+              <g id="pendulumArm" class="pendulum-arm">
+                <line class="pendulum-rod" x1="200" y1="260" x2="200" y2="62"></line>
+                <rect class="pendulum-weight" x="166" y="35" width="68" height="45" rx="11"></rect>
+                <rect class="pendulum-weight-line" x="184" y="51" width="32" height="3.5" rx="1.75"></rect>
+                <rect class="pendulum-weight-line" x="184" y="61" width="19" height="3.5" rx="1.75"></rect>
+              </g>
+              <circle class="pivot-halo" cx="200" cy="260" r="15"></circle>
+              <circle class="pivot-core" cx="200" cy="260" r="6.5"></circle>
+              <path class="base-curve" d="M 145 282 Q 200 296 255 282"></path>
+            </svg>
+          </div>
+
+          <div class="stage-caption">
+            <span class="beat-readout">
+              <span>当前第</span>
+              <strong id="currentBeatDisplay">—</strong>
+              <span class="readout-total" id="beatTotalDisplay">/ 4 拍</span>
+            </span>
+            <span class="mode-readout" id="modeReadout">4 拍 / 小节 · 八分</span>
+          </div>
+        </section>
+      </div>
+
+      <div class="hero-footer">
+        <div class="beats-block">
+          <div class="beats-head">
+            <span class="beats-label">Beat map · 拍点</span>
+            <span class="beats-tip">点击拍点切换重音</span>
+          </div>
+          <div class="beat-row" id="beatRow" role="group" aria-label="每小节拍点，点击切换重音"></div>
+        </div>
+        <button class="play-button" id="playBtn" type="button" aria-pressed="false" title="开始或停止（空格）">
+          <svg class="play-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8.2 5.4c0-.8.9-1.3 1.6-.8l9.1 6.6c.6.4.6 1.2 0 1.6l-9.1 6.6c-.7.5-1.6 0-1.6-.8V5.4Z"></path></svg>
+          <svg class="stop-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"></rect></svg>
+          <span id="playLabel">开始</span>
+        </button>
+      </div>
+    </section>
+
+    <section class="settings" aria-labelledby="settingsHeading">
+      <div class="settings-head">
+        <div class="settings-title">
+          <span class="eyebrow"><span class="eyebrow-line"></span><span>节奏工程 · RHYTHM</span></span>
+          <h2 id="settingsHeading">细分你的律动</h2>
+        </div>
+        <span class="summary-chip" id="rhythmSummary">4 拍 / 小节 · 八分 · 平均</span>
+      </div>
+
+      <div class="division-section">
+        <div class="control-label-row">
+          <span class="control-label">每拍细分</span>
+          <span class="control-note" id="divisionNote">每拍 2 个等分 · 八分音符</span>
+        </div>
+        <div class="division-grid" id="divisionGrid" role="group" aria-label="每拍细分数"></div>
+
+        <div class="swing-row">
+          <div class="swing-copy">
+            <strong>Swing 摇摆律动</strong>
+            <span id="swingNote">把每对细分中的第二个音后移，形成长—短律动</span>
+          </div>
+          <button class="switch" id="swingSwitch" type="button" role="switch" aria-checked="false" aria-label="开启摇摆律动"></button>
+        </div>
+      </div>
+
+      <div class="settings-columns">
+        <section class="setting-column" aria-labelledby="meterHeading">
+          <h3 id="meterHeading">小节与重音</h3>
+          <div class="row-between">
+            <span class="row-label">每小节拍数</span>
+            <div class="stepper">
+              <button id="beatsDec" type="button" aria-label="减少一小节拍数">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14"></path></svg>
+              </button>
+              <output id="beatsOutput" aria-live="polite">4</output>
+              <button id="beatsInc" type="button" aria-label="增加一小节拍数">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
+              </button>
+            </div>
+          </div>
+          <div class="quick-beats" id="quickBeats" role="group" aria-label="常用拍数"></div>
+          <div class="accent-row">
+            <div class="accent-copy">
+              <strong>强调第一拍</strong>
+              <span>第一拍更高、更响，明确小节起点</span>
+            </div>
+            <button class="switch" id="accentSwitch" type="button" role="switch" aria-checked="true" aria-label="强调第一拍"></button>
+          </div>
+          <p class="inline-hint">点击上方拍点，可自定义任意重音拍。</p>
+        </section>
+
+        <section class="setting-column" aria-labelledby="soundHeading">
+          <h3 id="soundHeading">音色与音量</h3>
+          <div class="sound-grid" id="soundGrid" role="group" aria-label="节拍器音色">
+            <button class="sound-button is-active" type="button" data-sound="classic" aria-pressed="true">
+              <span class="sound-wave" aria-hidden="true"><i></i><i></i><i></i></span><span>经典</span><small>CLICK</small>
+            </button>
+            <button class="sound-button" type="button" data-sound="wood" aria-pressed="false">
+              <span class="sound-wave" aria-hidden="true"><i></i><i></i><i></i></span><span>木质</span><small>WOOD</small>
+            </button>
+            <button class="sound-button" type="button" data-sound="electronic" aria-pressed="false">
+              <span class="sound-wave" aria-hidden="true"><i></i><i></i><i></i></span><span>电子</span><small>BEEP</small>
+            </button>
+            <button class="sound-button" type="button" data-sound="tick" aria-pressed="false">
+              <span class="sound-wave" aria-hidden="true"><i></i><i></i><i></i></span><span>滴答</span><small>TICK</small>
+            </button>
+          </div>
+          <div class="volume-row">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M11 5 6.5 8.5H3v7h3.5L11 19V5Z"></path><path d="M15 9a4 4 0 0 1 0 6M17.5 6.5a7.5 7.5 0 0 1 0 11"></path>
+            </svg>
+            <input class="range-input" id="volumeSlider" type="range" min="0" max="100" step="1" value="75" aria-label="音量">
+            <output id="volumeOutput" for="volumeSlider">75%</output>
+          </div>
+        </section>
+
+        <section class="setting-column" aria-labelledby="timerHeading">
+          <h3 id="timerHeading">计时器</h3>
+          <div class="timer-options" id="timerOptions" role="group" aria-label="自动停止计时器">
+            <button type="button" data-timer="0" class="is-active" aria-pressed="true">关</button>
+            <button type="button" data-timer="1" aria-pressed="false">1 分</button>
+            <button type="button" data-timer="3" aria-pressed="false">3 分</button>
+            <button type="button" data-timer="5" aria-pressed="false">5 分</button>
+            <button type="button" data-timer="10" aria-pressed="false">10 分</button>
+            <button type="button" data-timer="15" aria-pressed="false">15 分</button>
+          </div>
+          <p class="timer-note">启动后倒计时，到点自动停止。</p>
+          <div class="shortcut-list">
+            <span class="shortcut"><kbd>Space</kbd> 开始 / 停止</span>
+            <span class="shortcut"><kbd>T</kbd> Tap 测速</span>
+            <span class="shortcut"><kbd>↑</kbd><kbd>↓</kbd> BPM ±1</span>
+            <span class="shortcut"><kbd>F</kbd> 演奏大屏</span>
+          </div>
+        </section>
+      </div>
+    </section>
+
+    <footer class="page-footer">
+      <span class="footer-tech">Web Audio 前瞻调度 · 基于音频时钟</span>
+      <span>Pulse Metronome · 所有设置保存在本地</span>
+    </footer>
+  </main>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+(() => {
+  'use strict';
+
+  /* ------------------------------------------------------------------
+     Constants & state
+     ------------------------------------------------------------------ */
+  const STORE_KEY = 'pulse-metronome-v1';
+  const MIN_BPM = 20;
+  const MAX_BPM = 300;
+  const MIN_BEATS = 1;
+  const MAX_BEATS = 16;
+  const LOOKAHEAD = 0.12;
+  const SCHEDULE_INTERVAL = 25;
+  const TIMER_RING_CIRCUMFERENCE = 2 * Math.PI * 18;
+  const DIVISION_NAMES = [
+    '四分', '八分', '三连音', '十六分', '五连音', '六连音',
+    '七连音', '三十二分', '九连音', '十连音', '十一连音'
+  ];
+  const SOUNDS = ['classic', 'wood', 'electronic', 'tick'];
+  const TEMPO_MARKS = [
+    { max: 20, name: 'Larghissimo', zh: '极慢板' },
+    { max: 40, name: 'Grave', zh: '庄板' },
+    { max: 45, name: 'Lento', zh: '缓板' },
+    { max: 50, name: 'Largo', zh: '广板' },
+    { max: 60, name: 'Adagio', zh: '柔板' },
+    { max: 70, name: 'Adagietto', zh: '小柔板' },
+    { max: 85, name: 'Andante', zh: '行板' },
+    { max: 97, name: 'Moderato', zh: '中板' },
+    { max: 109, name: 'Allegretto', zh: '小快板' },
+    { max: 132, name: 'Allegro', zh: '快板' },
+    { max: 140, name: 'Vivace', zh: '活板' },
+    { max: 177, name: 'Presto', zh: '急板' },
+    { max: 300, name: 'Prestissimo', zh: '最急板' }
+  ];
+
+  const $ = (selector, scope = document) => scope.querySelector(selector);
+  const $$ = (selector, scope = document) => Array.from(scope.querySelectorAll(selector));
+
+  const dom = {
+    themeBtn: $('#themeBtn'),
+    fullscreenBtn: $('#fullscreenBtn'),
+    bpmInput: $('#bpmInput'),
+    bpmSlider: $('#bpmSlider'),
+    bpmDec: $('#bpmDec'),
+    bpmInc: $('#bpmInc'),
+    tempoTag: $('#tempoTag'),
+    bpmCaption: $('#bpmCaption'),
+    beatUnitCaption: $('#beatUnitCaption'),
+    tapBtn: $('#tapBtn'),
+    tapLabel: $('#tapLabel'),
+    tapHint: $('#tapHint'),
+    statusText: $('#statusText'),
+    timerChip: $('#timerChip'),
+    timerText: $('#timerText'),
+    timerKicker: $('#timerKicker'),
+    timerRingProgress: $('#timerRingProgress'),
+    presentationExit: $('#presentationExit'),
+    stageGlow: $('#stageGlow'),
+    arcTicks: $('#arcTicks'),
+    pendulumArm: $('#pendulumArm'),
+    currentBeatDisplay: $('#currentBeatDisplay'),
+    beatTotalDisplay: $('#beatTotalDisplay'),
+    modeReadout: $('#modeReadout'),
+    beatRow: $('#beatRow'),
+    playBtn: $('#playBtn'),
+    playLabel: $('#playLabel'),
+    divisionGrid: $('#divisionGrid'),
+    divisionNote: $('#divisionNote'),
+    swingSwitch: $('#swingSwitch'),
+    swingNote: $('#swingNote'),
+    rhythmSummary: $('#rhythmSummary'),
+    beatsOutput: $('#beatsOutput'),
+    beatsDec: $('#beatsDec'),
+    beatsInc: $('#beatsInc'),
+    quickBeats: $('#quickBeats'),
+    accentSwitch: $('#accentSwitch'),
+    soundGrid: $('#soundGrid'),
+    volumeSlider: $('#volumeSlider'),
+    volumeOutput: $('#volumeOutput'),
+    timerOptions: $('#timerOptions'),
+    themeColorMeta: $('#themeColorMeta'),
+    toast: $('#toast')
+  };
+
+  function clamp(value, min, max) {
+    return Math.min(max, Math.max(min, value));
+  }
+
+  function toInt(value, fallback) {
+    const parsed = Number.parseInt(value, 10);
+    return Number.isFinite(parsed) ? parsed : fallback;
+  }
+
+  function readState() {
+    const fallback = {
+      bpm: 120,
+      beats: 4,
+      subdivision: 2,
+      swing: false,
+      accents: [true, false, false, false],
+      sound: 'classic',
+      volume: 0.75,
+      timer: 0,
+      theme: document.documentElement.dataset.theme === 'light' ? 'light' : 'dark'
+    };
+
+    let saved = null;
+    try {
+      saved = JSON.parse(localStorage.getItem(STORE_KEY) || 'null');
+    } catch (error) {
+      saved = null;
+    }
+    if (!saved || typeof saved !== 'object') return fallback;
+
+    const beats = clamp(toInt(saved.beats, fallback.beats), MIN_BEATS, MAX_BEATS);
+    let accents = Array.isArray(saved.accents)
+      ? saved.accents.slice(0, beats).map(Boolean)
+      : fallback.accents.slice(0, beats);
+    while (accents.length < beats) accents.push(false);
+
+    return {
+      bpm: clamp(toInt(saved.bpm, fallback.bpm), MIN_BPM, MAX_BPM),
+      beats,
+      subdivision: clamp(toInt(saved.subdivision, fallback.subdivision), 1, 11),
+      swing: Boolean(saved.swing),
+      accents,
+      sound: SOUNDS.includes(saved.sound) ? saved.sound : fallback.sound,
+      volume: clamp(Number.isFinite(Number(saved.volume)) ? Number(saved.volume) : fallback.volume, 0, 1),
+      timer: [0, 1, 3, 5, 10, 15].includes(toInt(saved.timer, 0)) ? toInt(saved.timer, 0) : 0,
+      theme: saved.theme === 'light' || saved.theme === 'dark' ? saved.theme : fallback.theme
+    };
+  }
+
+  const state = readState();
+
+  if (state.subdivision % 2 !== 0) state.swing = false;
+
+  let isPlaying = false;
+  let isStarting = false;
+  let audioCtx = null;
+  let masterGain = null;
+  let compressor = null;
+  let activeBus = null;
+  let noiseBuffer = null;
+
+  let schedulerTimer = null;
+  let schedulerWorker = null;
+  let schedulerWorkerUrl = null;
+  let visualFrame = null;
+
+  let nextTickTime = 0;
+  let beatStartTime = 0;
+  let beatIndex = 0;
+  let subIndex = 0;
+  let absoluteBeat = 0;
+  let currentOffsets = [0];
+  let stopAtTime = null;
+  let visualQueue = [];
+  let lastVisual = null;
+  let lastTimerText = '';
+  let timerExpired = false;
+  let pendulumDirection = 1;
+  let pendulumAngle = 0;
+  let pendulumSettleFrame = null;
+  let lastBeatAudioTime = 0;
+  let debugTicks = [];
+  let toastTimeout = null;
+  let saveTimeout = null;
+  let tapResetTimeout = null;
+  let tapFlashTimeout = null;
+  let taps = [];
+  let wakeLock = null;
+  let mutedVolume = 0.75;
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+
+  /* ------------------------------------------------------------------
+     Persistence & small UI helpers
+     ------------------------------------------------------------------ */
+  function persist() {
+    window.clearTimeout(saveTimeout);
+    saveTimeout = window.setTimeout(() => {
+      try {
+        localStorage.setItem(STORE_KEY, JSON.stringify({
+          bpm: state.bpm,
+          beats: state.beats,
+          subdivision: state.subdivision,
+          swing: state.swing,
+          accents: state.accents,
+          sound: state.sound,
+          volume: state.volume,
+          timer: state.timer,
+          theme: state.theme
+        }));
+      } catch (error) {
+        /* Local storage can be unavailable in private contexts. */
+      }
+    }, 140);
+  }
+
+  function showToast(message) {
+    window.clearTimeout(toastTimeout);
+    dom.toast.textContent = message;
+    dom.toast.classList.add('is-visible');
+    toastTimeout = window.setTimeout(() => dom.toast.classList.remove('is-visible'), 2600);
+  }
+
+  function tempoMark(bpm) {
+    return TEMPO_MARKS.find(mark => bpm <= mark.max) || TEMPO_MARKS[TEMPO_MARKS.length - 1];
+  }
+
+  function divisionName(value) {
+    return DIVISION_NAMES[clamp(value, 1, 11) - 1];
+  }
+
+  function formatClock(seconds) {
+    const safe = Math.max(0, Math.ceil(seconds - 0.12));
+    const minutes = Math.floor(safe / 60);
+    const rest = safe % 60;
+    return `${String(minutes).padStart(2, '0')}:${String(rest).padStart(2, '0')}`;
+  }
+
+  function currentRhythmLabel() {
+    return `${state.beats} 拍 · ${divisionName(state.subdivision)}${state.swing ? ' · 摇摆' : ' · 平均'}`;
+  }
+
+  function volumeCurve(value) {
+    return Math.pow(clamp(value, 0, 1), 1.55) * 0.9;
+  }
+
+  /* ------------------------------------------------------------------
+     Audio engine
+     ------------------------------------------------------------------ */
+  async function ensureAudio() {
+    if (!audioCtx) {
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContextClass) throw new Error('Web Audio API is not available');
+
+      audioCtx = new AudioContextClass({ latencyHint: 'interactive' });
+      masterGain = audioCtx.createGain();
+      masterGain.gain.value = volumeCurve(state.volume);
+
+      compressor = audioCtx.createDynamicsCompressor();
+      compressor.threshold.value = -14;
+      compressor.knee.value = 18;
+      compressor.ratio.value = 4;
+      compressor.attack.value = 0.003;
+      compressor.release.value = 0.18;
+
+      masterGain.connect(compressor);
+      compressor.connect(audioCtx.destination);
+
+      const length = Math.floor(audioCtx.sampleRate * 0.2);
+      noiseBuffer = audioCtx.createBuffer(1, length, audioCtx.sampleRate);
+      const channel = noiseBuffer.getChannelData(0);
+      for (let i = 0; i < length; i += 1) {
+        channel[i] = Math.random() * 2 - 1;
+      }
+    }
+
+    if (audioCtx.state !== 'running') {
+      await audioCtx.resume();
+    }
+    return audioCtx;
+  }
+
+  function setMasterVolume(value, immediate = false) {
+    if (!audioCtx || !masterGain) return;
+    const now = audioCtx.currentTime;
+    const target = volumeCurve(value);
+    masterGain.gain.cancelScheduledValues(now);
+    if (immediate) {
+      masterGain.gain.setValueAtTime(target, now);
+    } else {
+      masterGain.gain.setTargetAtTime(target, now, 0.018);
+    }
+  }
+
+  function envelope(time, peak, decay) {
+    const gain = audioCtx.createGain();
+    gain.gain.setValueAtTime(0.0001, time);
+    gain.gain.exponentialRampToValueAtTime(Math.max(0.0002, peak), time + 0.0025);
+    gain.gain.exponentialRampToValueAtTime(0.0001, time + Math.max(0.012, decay));
+    return gain;
+  }
+
+  function scheduleTone(bus, time, options) {
+    const {
+      type = 'sine',
+      frequency = 1000,
+      endFrequency = null,
+      duration = 0.05,
+      peak = 0.25,
+      filterType = null,
+      filterFrequency = 2000,
+      filterQ = 1
+    } = options;
+
+    const osc = audioCtx.createOscillator();
+    osc.type = type;
+    osc.frequency.setValueAtTime(Math.max(20, frequency), time);
+    if (endFrequency) {
+      osc.frequency.exponentialRampToValueAtTime(Math.max(20, endFrequency), time + duration);
+    }
+
+    let node = osc;
+    if (filterType) {
+      const filter = audioCtx.createBiquadFilter();
+      filter.type = filterType;
+      filter.frequency.setValueAtTime(filterFrequency, time);
+      filter.Q.setValueAtTime(filterQ, time);
+      node.connect(filter);
+      node = filter;
+    }
+
+    const gain = envelope(time, peak, duration);
+    node.connect(gain);
+    gain.connect(bus);
+    osc.start(time);
+    osc.stop(time + duration + 0.03);
+  }
+
+  function scheduleNoise(bus, time, options) {
+    if (!noiseBuffer) return;
+    const {
+      duration = 0.02,
+      peak = 0.12,
+      filterType = 'highpass',
+      filterFrequency = 3000,
+      filterQ = 0.8
+    } = options;
+
+    const source = audioCtx.createBufferSource();
+    source.buffer = noiseBuffer;
+    const filter = audioCtx.createBiquadFilter();
+    filter.type = filterType;
+    filter.frequency.setValueAtTime(filterFrequency, time);
+    filter.Q.setValueAtTime(filterQ, time);
+    const gain = envelope(time, peak, duration);
+    source.connect(filter);
+    filter.connect(gain);
+    gain.connect(bus);
+    source.start(time, 0, Math.min(duration + 0.03, 0.2));
+  }
+
+  function playClickAt(time, level, sound, bus) {
+    if (!audioCtx || !bus) return;
+
+    const isAccent = level === 'accent';
+    const isMain = level === 'beat';
+    const isSub = level === 'sub';
+
+    if (sound === 'classic') {
+      const base = isAccent ? 1760 : isMain ? 1320 : 960;
+      scheduleTone(bus, time, {
+        type: 'sine',
+        frequency: base,
+        endFrequency: base * 0.84,
+        duration: isSub ? 0.026 : 0.055,
+        peak: (isAccent ? 0.44 : isMain ? 0.3 : 0.13)
+      });
+      scheduleNoise(bus, time, {
+        duration: 0.009,
+        peak: (isAccent ? 0.11 : isMain ? 0.075 : 0.035),
+        filterType: 'highpass',
+        filterFrequency: 4200
+      });
+    } else if (sound === 'wood') {
+      const base = isAccent ? 760 : isMain ? 590 : 460;
+      scheduleTone(bus, time, {
+        type: 'sine',
+        frequency: base,
+        endFrequency: base * 0.58,
+        duration: isSub ? 0.04 : 0.07,
+        peak: (isAccent ? 0.48 : isMain ? 0.33 : 0.14)
+      });
+      scheduleTone(bus, time, {
+        type: 'triangle',
+        frequency: base * 2.3,
+        endFrequency: base * 1.8,
+        duration: 0.022,
+        peak: (isAccent ? 0.11 : isMain ? 0.075 : 0.035)
+      });
+      scheduleNoise(bus, time, {
+        duration: 0.024,
+        peak: (isAccent ? 0.12 : isMain ? 0.085 : 0.04),
+        filterType: 'bandpass',
+        filterFrequency: isAccent ? 2100 : 1700,
+        filterQ: 1.2
+      });
+    } else if (sound === 'electronic') {
+      const base = isAccent ? 1568 : isMain ? 1046 : 784;
+      scheduleTone(bus, time, {
+        type: 'triangle',
+        frequency: base,
+        endFrequency: base * 0.985,
+        duration: isSub ? 0.035 : 0.075,
+        peak: (isAccent ? 0.34 : isMain ? 0.24 : 0.1)
+      });
+      scheduleTone(bus, time, {
+        type: 'sine',
+        frequency: base * 2,
+        endFrequency: base * 1.95,
+        duration: 0.025,
+        peak: (isAccent ? 0.1 : isMain ? 0.06 : 0.028)
+      });
+    } else {
+      const base = isAccent ? 2500 : isMain ? 2050 : 1600;
+      scheduleNoise(bus, time, {
+        duration: isSub ? 0.014 : 0.02,
+        peak: (isAccent ? 0.32 : isMain ? 0.23 : 0.11),
+        filterType: 'bandpass',
+        filterFrequency: base,
+        filterQ: 0.9
+      });
+      if (isAccent) {
+        scheduleTone(bus, time, {
+          type: 'sine',
+          frequency: 2250,
+          endFrequency: 1900,
+          duration: 0.025,
+          peak: 0.075
+        });
+      }
+    }
+
+    // Small level compensation keeps very fast subdivisions from getting lost.
+    if (isSub) {
+      scheduleTone(bus, time, {
+        type: 'sine',
+        frequency: 520,
+        endFrequency: 420,
+        duration: 0.012,
+        peak: 0.018
+      });
+    }
+
+  }
+
+  function previewClick(level = 'accent') {
+    ensureAudio().then(() => {
+      if (!audioCtx) return;
+      if (isPlaying && activeBus) {
+        playClickAt(audioCtx.currentTime + 0.025, level, state.sound, activeBus);
+        return;
+      }
+      const bus = audioCtx.createGain();
+      bus.gain.value = 1;
+      bus.connect(masterGain);
+      playClickAt(audioCtx.currentTime + 0.03, level, state.sound, bus);
+      window.setTimeout(() => {
+        try { bus.disconnect(); } catch (error) { /* Already disconnected. */ }
+      }, 550);
+    }).catch(() => {
+      showToast('浏览器暂时无法启动音频，请检查权限或刷新页面。');
+    });
+  }
+
+  /* ------------------------------------------------------------------
+     Scheduler — the timing core
+     ------------------------------------------------------------------ */
+  function getOffsets() {
+    const n = state.subdivision;
+    if (n <= 1) return [0];
+
+    if (state.swing && n % 2 === 0) {
+      const offsets = [];
+      const pair = 2 / n;
+      for (let i = 0; i < n; i += 2) {
+        offsets.push(i / n);
+        offsets.push(i / n + pair * (2 / 3));
+      }
+      return offsets;
+    }
+
+    return Array.from({ length: n }, (_, index) => index / n);
+  }
+
+  function startScheduler() {
+    stopScheduler();
+    try {
+      const workerCode = `
+        let timerId = null;
+        self.onmessage = function (event) {
+          const data = event.data || {};
+          if (data.type === 'start') {
+            if (timerId !== null) clearInterval(timerId);
+            timerId = setInterval(function () { self.postMessage('tick'); }, data.interval || 25);
+          } else if (data.type === 'stop') {
+            if (timerId !== null) clearInterval(timerId);
+            timerId = null;
+          }
+        };
+      `;
+      const blob = new Blob([workerCode], { type: 'application/javascript' });
+      schedulerWorkerUrl = URL.createObjectURL(blob);
+      schedulerWorker = new Worker(schedulerWorkerUrl);
+      schedulerWorker.onmessage = schedulerTick;
+      schedulerWorker.postMessage({ type: 'start', interval: SCHEDULE_INTERVAL });
+    } catch (error) {
+      schedulerWorker = null;
+      schedulerTimer = window.setInterval(schedulerTick, SCHEDULE_INTERVAL);
+    }
+  }
+
+  function stopScheduler() {
+    if (schedulerWorker) {
+      try {
+        schedulerWorker.postMessage({ type: 'stop' });
+        schedulerWorker.terminate();
+      } catch (error) { /* No-op. */ }
+      schedulerWorker = null;
+    }
+    if (schedulerWorkerUrl) {
+      URL.revokeObjectURL(schedulerWorkerUrl);
+      schedulerWorkerUrl = null;
+    }
+    if (schedulerTimer !== null) {
+      window.clearInterval(schedulerTimer);
+      schedulerTimer = null;
+    }
+  }
+
+  function schedulerTick() {
+    if (!isPlaying || !audioCtx) return;
+
+    const horizon = audioCtx.currentTime + LOOKAHEAD;
+    let guard = 0;
+
+    while (nextTickTime < horizon && guard < 600) {
+      if (stopAtTime !== null && nextTickTime >= stopAtTime) {
+        stopMetronome('timer');
+        return;
+      }
+
+      scheduleTick(nextTickTime);
+      advanceScheduler();
+      guard += 1;
+    }
+  }
+
+  function scheduleTick(time) {
+    const isBeat = subIndex === 0;
+    const isAccent = isBeat && Boolean(state.accents[beatIndex]);
+    const level = isAccent ? 'accent' : isBeat ? 'beat' : 'sub';
+    const sound = state.sound;
+
+    playClickAt(time, level, sound, activeBus);
+    debugTicks.push({
+      time,
+      beat: beatIndex,
+      sub: subIndex,
+      level,
+      totalSubs: currentOffsets.length,
+      bpm: state.bpm
+    });
+    if (debugTicks.length > 300) debugTicks.splice(0, debugTicks.length - 300);
+
+    if (!document.hidden) {
+      visualQueue.push({
+        time,
+        beat: beatIndex,
+        sub: subIndex,
+        level,
+        totalSubs: currentOffsets.length,
+        absoluteBeat
+      });
+      if (visualQueue.length > 220) visualQueue.splice(0, visualQueue.length - 220);
+    }
+  }
+
+  function advanceScheduler() {
+    subIndex += 1;
+    const beatDuration = 60 / state.bpm;
+
+    if (subIndex >= currentOffsets.length) {
+      subIndex = 0;
+      beatIndex = (beatIndex + 1) % state.beats;
+      absoluteBeat += 1;
+      beatStartTime += beatDuration;
+      currentOffsets = getOffsets();
+      nextTickTime = beatStartTime;
+    } else {
+      nextTickTime = beatStartTime + currentOffsets[subIndex] * beatDuration;
+    }
+  }
+
+  /* ------------------------------------------------------------------
+     Transport
+     ------------------------------------------------------------------ */
+  async function startMetronome() {
+    if (isPlaying || isStarting) return;
+    isStarting = true;
+    dom.playBtn.disabled = true;
+
+    try {
+      await ensureAudio();
+    } catch (error) {
+      isStarting = false;
+      dom.playBtn.disabled = false;
+      showToast('浏览器无法启动音频，请检查站点权限。');
+      return;
+    }
+
+    if (isPlaying) {
+      isStarting = false;
+      dom.playBtn.disabled = false;
+      return;
+    }
+
+    setMasterVolume(state.volume, true);
+
+    if (activeBus) {
+      try { activeBus.disconnect(); } catch (error) { /* No-op. */ }
+    }
+    activeBus = audioCtx.createGain();
+    activeBus.gain.value = 1;
+    activeBus.connect(masterGain);
+
+    isPlaying = true;
+    isStarting = false;
+    dom.playBtn.disabled = false;
+
+    debugTicks = [];
+    visualQueue = [];
+    lastVisual = null;
+    lastTimerText = '';
+
+    beatIndex = 0;
+    subIndex = 0;
+    absoluteBeat = 0;
+    currentOffsets = getOffsets();
+    beatStartTime = audioCtx.currentTime + 0.12;
+    nextTickTime = beatStartTime;
+    stopAtTime = state.timer > 0 ? beatStartTime + state.timer * 60 : null;
+    timerExpired = false;
+
+    debugTicks = [];
+    cancelPendulumSettle();
+    pendulumDirection = 1;
+    lastBeatAudioTime = beatStartTime;
+    document.body.classList.add('is-playing');
+    dom.playBtn.classList.add('is-playing');
+    dom.playBtn.setAttribute('aria-pressed', 'true');
+    dom.playLabel.textContent = '停止';
+    dom.statusText.textContent = '进行中';
+    dom.modeReadout.classList.remove('is-accent');
+    dom.modeReadout.textContent = `${state.beats} 拍 / 小节 · ${divisionName(state.subdivision)}`;
+    lastTimerText = '';
+    updateTimerDisplay(true);
+
+    startScheduler();
+    schedulerTick();
+    startVisualLoop();
+    requestWakeLock();
+    persist();
+  }
+
+  function stopMetronome(reason = 'manual') {
+    if (!isPlaying && !audioCtx) return;
+
+    isPlaying = false;
+    isStarting = false;
+    stopScheduler();
+
+    if (activeBus && audioCtx) {
+      const bus = activeBus;
+      const now = audioCtx.currentTime;
+      try {
+        bus.gain.cancelScheduledValues(now);
+        bus.gain.setValueAtTime(bus.gain.value, now);
+        bus.gain.linearRampToValueAtTime(0, now + 0.012);
+      } catch (error) { /* No-op. */ }
+      window.setTimeout(() => {
+        try { bus.disconnect(); } catch (error) { /* No-op. */ }
+      }, 180);
+      activeBus = null;
+    }
+
+    if (visualFrame !== null) {
+      cancelAnimationFrame(visualFrame);
+      visualFrame = null;
+    }
+    visualQueue = [];
+    lastVisual = null;
+
+    stopAtTime = null;
+    timerExpired = reason === 'timer';
+    document.body.classList.remove('is-playing');
+    dom.playBtn.classList.remove('is-playing');
+    dom.playBtn.setAttribute('aria-pressed', 'false');
+    dom.playLabel.textContent = '开始';
+    dom.statusText.textContent = reason === 'timer' ? '计时结束' : '待机';
+    dom.currentBeatDisplay.textContent = '—';
+    dom.modeReadout.textContent = `${state.beats} 拍 / 小节 · ${divisionName(state.subdivision)}`;
+    dom.modeReadout.classList.remove('is-accent');
+    settlePendulumToRest();
+    clearActiveBeatVisual();
+    lastTimerText = '';
+    updateTimerDisplay(true);
+    releaseWakeLock();
+
+    if (reason === 'timer') {
+      showToast('计时结束，节拍器已自动停止。');
+    }
+  }
+
+  function togglePlay() {
+    if (isStarting) return;
+    if (isPlaying) {
+      stopMetronome('manual');
+    } else {
+      startMetronome();
+    }
+  }
+
+  /* ------------------------------------------------------------------
+     Visual sync
+     ------------------------------------------------------------------ */
+  function outputLatency() {
+    if (!audioCtx) return 0;
+    const value = Number(audioCtx.outputLatency || audioCtx.baseLatency || 0);
+    return Number.isFinite(value) ? Math.min(0.08, Math.max(0, value)) : 0;
+  }
+
+  function startVisualLoop() {
+    if (visualFrame !== null) cancelAnimationFrame(visualFrame);
+    const loop = () => {
+      if (!isPlaying || !audioCtx) {
+        visualFrame = null;
+        return;
+      }
+
+      const now = audioCtx.currentTime + outputLatency();
+      let event = null;
+      while (visualQueue.length && visualQueue[0].time <= now) {
+        event = visualQueue.shift();
+        applyVisualEvent(event);
+      }
+
+      updatePendulum(now);
+      updateTimerDisplay(false);
+      visualFrame = requestAnimationFrame(loop);
+    };
+    visualFrame = requestAnimationFrame(loop);
+  }
+
+  function applyPendulumAngle(angle) {
+    if (!dom.pendulumArm) return;
+    pendulumAngle = angle;
+    dom.pendulumArm.setAttribute('transform', `rotate(${angle.toFixed(2)} 200 260)`);
+  }
+
+  function cancelPendulumSettle() {
+    if (pendulumSettleFrame !== null) {
+      cancelAnimationFrame(pendulumSettleFrame);
+      pendulumSettleFrame = null;
+    }
+  }
+
+  function settlePendulumToRest() {
+    cancelPendulumSettle();
+    if (!dom.pendulumArm) return;
+
+    const startAngle = pendulumAngle;
+    if (reduceMotion.matches || Math.abs(startAngle) < 0.08) {
+      applyPendulumAngle(0);
+      return;
+    }
+
+    const startTime = performance.now();
+    const duration = 1180;
+
+    const step = now => {
+      if (isPlaying) {
+        pendulumSettleFrame = null;
+        return;
+      }
+      const t = Math.min(1, (now - startTime) / duration);
+      const envelope = Math.exp(-2.9 * t) * (1 - t);
+      const angle = startAngle * envelope * Math.cos(5.3 * t);
+      if (t >= 1 || Math.abs(angle) < 0.035) {
+        applyPendulumAngle(0);
+        pendulumSettleFrame = null;
+        return;
+      }
+      applyPendulumAngle(angle);
+      pendulumSettleFrame = requestAnimationFrame(step);
+    };
+
+    pendulumSettleFrame = requestAnimationFrame(step);
+  }
+
+  function updatePendulum(audioNow) {
+    if (!dom.pendulumArm) return;
+    const beatDuration = 60 / state.bpm;
+    const elapsed = Math.max(0, audioNow - lastBeatAudioTime);
+    const amplitude = reduceMotion.matches ? 10 : 27;
+    const angle = pendulumDirection * amplitude * Math.cos((Math.PI * elapsed) / beatDuration);
+    applyPendulumAngle(angle);
+  }
+
+  function applyVisualEvent(event) {
+    lastVisual = event;
+    const total = Math.max(1, event.totalSubs || state.subdivision);
+
+    if (event.sub === 0) {
+      pendulumDirection = event.absoluteBeat % 2 === 0 ? 1 : -1;
+      lastBeatAudioTime = event.time;
+      dom.currentBeatDisplay.textContent = String(event.beat + 1);
+      dom.beatTotalDisplay.textContent = `/ ${state.beats} 拍`;
+      dom.modeReadout.textContent = event.level === 'accent'
+        ? '重音 · ACCENT'
+        : `第 ${event.beat + 1} 拍`;
+      dom.modeReadout.classList.toggle('is-accent', event.level === 'accent');
+      pulseStage(event.level);
+    } else {
+      dom.modeReadout.textContent = `细分 ${event.sub + 1} / ${total}`;
+      dom.modeReadout.classList.remove('is-accent');
+    }
+
+    paintBeatState(event);
+  }
+
+  function paintBeatState(event) {
+    if (!event) return;
+    const cells = dom.beatRow.children;
+    const cell = cells[event.beat];
+    if (!cell) return;
+
+    for (let i = 0; i < cells.length; i += 1) {
+      cells[i].classList.toggle('is-active', i === event.beat);
+      if (i !== event.beat) {
+        cells[i].querySelectorAll('.beat-subdots i.is-hot').forEach(dot => dot.classList.remove('is-hot'));
+      }
+    }
+
+    const dots = cell.querySelectorAll('.beat-subdots i');
+    dots.forEach((dot, index) => {
+      dot.classList.toggle('is-hot', index === event.sub);
+    });
+
+    if (event.sub === 0) {
+      const row = dom.beatRow;
+      const rowRect = row.getBoundingClientRect();
+      const cellRect = cell.getBoundingClientRect();
+      if (cellRect.left < rowRect.left + 4) {
+        row.scrollTo({
+          left: Math.max(0, row.scrollLeft - (rowRect.left - cellRect.left) - 8),
+          behavior: reduceMotion.matches ? 'auto' : 'smooth'
+        });
+      } else if (cellRect.right > rowRect.right - 4) {
+        row.scrollTo({
+          left: row.scrollLeft + (cellRect.right - rowRect.right) + 8,
+          behavior: reduceMotion.matches ? 'auto' : 'smooth'
+        });
+      }
+    }
+  }
+
+  function clearActiveBeatVisual() {
+    $$('.beat-cell', dom.beatRow).forEach(cell => {
+      cell.classList.remove('is-active');
+      $$('.beat-subdots i', cell).forEach(dot => dot.classList.remove('is-hot'));
+    });
+  }
+
+  function pulseStage(level) {
+    if (reduceMotion.matches || !dom.stageGlow) return;
+    try {
+      dom.stageGlow.animate(
+        [
+          { opacity: level === 'accent' ? 0.9 : 0.54, transform: 'translateX(-50%) scale(0.76)' },
+          { opacity: 0, transform: 'translateX(-50%) scale(1.26)' }
+        ],
+        {
+          duration: level === 'accent' ? 640 : 480,
+          easing: 'cubic-bezier(.16, 1, .3, 1)'
+        }
+      );
+    } catch (error) { /* Older browsers simply skip the glow. */ }
+  }
+
+  function updateTimerDisplay(force = false) {
+    if (!dom.timerChip) return;
+    if (state.timer <= 0) {
+      dom.timerChip.hidden = true;
+      dom.timerChip.classList.remove('is-ending', 'is-running');
+      lastTimerText = '';
+      return;
+    }
+
+    dom.timerChip.hidden = false;
+    const total = Math.max(0.001, state.timer * 60);
+    let seconds = total;
+    let remainingRatio = 1;
+
+    if (timerExpired && !isPlaying) {
+      seconds = 0;
+      remainingRatio = 0;
+    } else if (isPlaying && audioCtx && stopAtTime !== null) {
+      seconds = Math.max(0, stopAtTime - audioCtx.currentTime);
+      remainingRatio = clamp(seconds / total, 0, 1);
+    }
+
+    const text = formatClock(seconds);
+    const ending = !timerExpired && isPlaying && seconds <= 10.05;
+    const kicker = timerExpired && !isPlaying ? '已结束' : ending ? '即将停止' : '自动停止';
+
+    dom.timerChip.classList.toggle('is-running', isPlaying);
+    dom.timerChip.classList.toggle('is-ending', ending);
+    dom.timerRingProgress.style.strokeDashoffset = (TIMER_RING_CIRCUMFERENCE * (1 - remainingRatio)).toFixed(2);
+    if (dom.timerKicker.textContent !== kicker) dom.timerKicker.textContent = kicker;
+
+    if (force || text !== lastTimerText) {
+      dom.timerText.textContent = text;
+      dom.timerChip.setAttribute('aria-label', `自动停止计时器，剩余 ${text}`);
+      lastTimerText = text;
+    }
+  }
+
+  async function requestWakeLock() {
+    if (!('wakeLock' in navigator) || wakeLock) return;
+    try {
+      wakeLock = await navigator.wakeLock.request('screen');
+      wakeLock.addEventListener('release', () => { wakeLock = null; });
+    } catch (error) {
+      wakeLock = null;
+    }
+  }
+
+  function releaseWakeLock() {
+    if (wakeLock) {
+      try { wakeLock.release(); } catch (error) { /* No-op. */ }
+      wakeLock = null;
+    }
+  }
+
+  /* ------------------------------------------------------------------
+     Rendering & configuration
+     ------------------------------------------------------------------ */
+  function noteGlyph(n) {
+    const width = 42;
+    const height = 20;
+    const margin = 5;
+    const spacing = n === 1 ? 0 : Math.min(4.2, (width - margin * 2) / (n - 1));
+    const startX = (width - spacing * (n - 1)) / 2;
+    const stemTop = 6;
+    const stemBottom = 15.5;
+    let markup = `<svg class="note-glyph" viewBox="0 0 ${width} ${height}" fill="none" aria-hidden="true">`;
+
+    if (n > 1) {
+      markup += `<line x1="${(startX - 1.3).toFixed(2)}" y1="${stemTop}" x2="${(startX + spacing * (n - 1) + 1.3).toFixed(2)}" y2="${stemTop}" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" opacity=".95"></line>`;
+    }
+
+    for (let i = 0; i < n; i += 1) {
+      const x = startX + spacing * i;
+      markup += `<line x1="${x.toFixed(2)}" y1="${stemTop}" x2="${x.toFixed(2)}" y2="${stemBottom}" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" opacity=".75"></line>`;
+      markup += `<ellipse cx="${x.toFixed(2)}" cy="${stemBottom + 0.35}" rx="2.1" ry="1.35" fill="currentColor" opacity=".9" transform="rotate(-16 ${x.toFixed(2)} ${stemBottom + 0.35})"></ellipse>`;
+    }
+
+    markup += '</svg>';
+    return markup;
+  }
+
+  function buildDivisionButtons() {
+    const fragment = document.createDocumentFragment();
+    for (let n = 1; n <= 11; n += 1) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'division-button';
+      button.dataset.sub = String(n);
+      button.setAttribute('aria-pressed', 'false');
+      button.setAttribute('aria-label', `每拍 ${n} 等分，${divisionName(n)}`);
+      button.title = `每拍 ${n} 等分 · ${divisionName(n)} 音符`;
+      button.innerHTML = `<span class="division-count">${n}</span>${noteGlyph(n)}<span class="division-name">${divisionName(n)}</span>`;
+      fragment.append(button);
+    }
+    dom.divisionGrid.append(fragment);
+  }
+
+  function buildBeatControls() {
+    const values = [2, 3, 4, 5, 6, 7];
+    const fragment = document.createDocumentFragment();
+    values.forEach(value => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = String(value);
+      button.dataset.beats = String(value);
+      button.setAttribute('aria-label', `每小节 ${value} 拍`);
+      button.setAttribute('aria-pressed', 'false');
+      button.addEventListener('click', () => setBeats(value));
+      fragment.append(button);
+    });
+    dom.quickBeats.append(fragment);
+  }
+
+  function buildArcTicks() {
+    if (!dom.arcTicks) return;
+    const cx = 200;
+    const cy = 260;
+    const fragment = document.createDocumentFragment();
+    for (let angle = -28; angle <= 28; angle += 2) {
+      const major = angle % 14 === 0;
+      const inner = major ? 207 : 214;
+      const outer = 220;
+      const radians = (angle * Math.PI) / 180;
+      const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      line.setAttribute('x1', (cx + inner * Math.sin(radians)).toFixed(2));
+      line.setAttribute('y1', (cy - inner * Math.cos(radians)).toFixed(2));
+      line.setAttribute('x2', (cx + outer * Math.sin(radians)).toFixed(2));
+      line.setAttribute('y2', (cy - outer * Math.cos(radians)).toFixed(2));
+      line.setAttribute('class', `arc-tick${major ? ' is-major' : ''}`);
+      fragment.append(line);
+    }
+    dom.arcTicks.append(fragment);
+  }
+
+  function renderBeatRow() {
+    const fragment = document.createDocumentFragment();
+
+    for (let i = 0; i < state.beats; i += 1) {
+      const accent = Boolean(state.accents[i]);
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = `beat-cell${accent ? ' is-accent' : ''}`;
+      button.dataset.beat = String(i);
+      button.dataset.subs = String(state.subdivision);
+      button.title = `第 ${i + 1} 拍${accent ? '（重音）' : ''} · 点击${accent ? '取消' : '设置'}重音`;
+      button.setAttribute('aria-pressed', accent ? 'true' : 'false');
+      button.setAttribute('aria-label', `第 ${i + 1} 拍，${accent ? '重音' : '普通'}，点击切换重音`);
+      const dots = '<i></i>'.repeat(state.subdivision);
+      button.innerHTML = `<span class="beat-number">${i + 1}</span><span class="beat-subdots" aria-hidden="true">${dots}</span>`;
+      button.addEventListener('click', () => toggleAccent(i));
+      fragment.append(button);
+    }
+
+    dom.beatRow.replaceChildren(fragment);
+    dom.beatTotalDisplay.textContent = `/ ${state.beats} 拍`;
+    dom.beatsOutput.textContent = String(state.beats);
+    const beatsTip = $('.beats-tip');
+    if (beatsTip) {
+      beatsTip.textContent = state.beats > 7 ? '点击重音 · 左右滑动' : '点击拍点切换重音';
+    }
+    $$('.quick-beats button', dom.quickBeats).forEach(button => {
+      const active = Number(button.dataset.beats) === state.beats;
+      button.classList.toggle('is-active', active);
+      button.setAttribute('aria-pressed', active ? 'true' : 'false');
+    });
+
+    if (isPlaying && lastVisual) {
+      const cells = dom.beatRow.children;
+      if (cells[lastVisual.beat]) {
+        cells[lastVisual.beat].classList.add('is-active');
+        const dots = cells[lastVisual.beat].querySelectorAll('.beat-subdots i');
+        if (dots[lastVisual.sub]) dots[lastVisual.sub].classList.add('is-hot');
+      }
+    }
+  }
+
+  function renderDivisionButtons() {
+    $$('.division-button', dom.divisionGrid).forEach(button => {
+      const active = Number(button.dataset.sub) === state.subdivision;
+      button.classList.toggle('is-active', active);
+      button.setAttribute('aria-pressed', active ? 'true' : 'false');
+    });
+  }
+
+  function renderTimerButtons() {
+    $$('button', dom.timerOptions).forEach(button => {
+      const active = Number(button.dataset.timer) === state.timer;
+      button.classList.toggle('is-active', active);
+      button.setAttribute('aria-pressed', active ? 'true' : 'false');
+    });
+  }
+
+  function renderSoundButtons() {
+    $$('.sound-button', dom.soundGrid).forEach(button => {
+      const active = button.dataset.sound === state.sound;
+      button.classList.toggle('is-active', active);
+      button.setAttribute('aria-pressed', active ? 'true' : 'false');
+    });
+  }
+
+  function updateSwingUI() {
+    const supported = state.subdivision % 2 === 0;
+    if (!supported) state.swing = false;
+    dom.swingSwitch.disabled = !supported;
+    dom.swingSwitch.setAttribute('aria-checked', state.swing ? 'true' : 'false');
+    dom.swingSwitch.setAttribute('aria-label', state.swing ? '关闭摇摆律动' : '开启摇摆律动');
+    dom.swingNote.textContent = supported
+      ? (state.swing ? 'Swing 已开启：每对细分第二个音后移' : '把每对细分中的第二个音后移，形成长—短律动')
+      : '摇摆仅适用于双数细分（2 / 4 / 6 / 8 / 10）';
+  }
+
+  function updateAccentUI() {
+    const active = Boolean(state.accents[0]);
+    dom.accentSwitch.setAttribute('aria-checked', active ? 'true' : 'false');
+    dom.accentSwitch.setAttribute('aria-label', active ? '关闭第一拍重音' : '开启第一拍重音');
+  }
+
+  function updateLabels() {
+    const mark = tempoMark(state.bpm);
+    dom.tempoTag.textContent = `${mark.name} · ${mark.zh}`;
+    dom.bpmCaption.textContent = `每分钟 ${state.bpm} 拍`;
+    dom.beatUnitCaption.textContent = `每拍 ${Math.round((60 / state.bpm) * 1000)} ms`;
+    dom.divisionNote.textContent = `每拍 ${state.subdivision} 个等分 · ${divisionName(state.subdivision)}`;
+    dom.rhythmSummary.textContent = currentRhythmLabel();
+    dom.beatTotalDisplay.textContent = `/ ${state.beats} 拍`;
+    if (!isPlaying) {
+      dom.modeReadout.textContent = `${state.beats} 拍 / 小节 · ${divisionName(state.subdivision)}`;
+    }
+    dom.volumeOutput.textContent = `${Math.round(state.volume * 100)}%`;
+    dom.bpmInput.setAttribute('aria-valuenow', String(state.bpm));
+    dom.bpmInput.setAttribute('aria-valuetext', `${state.bpm} BPM，${mark.name} ${mark.zh}`);
+    dom.tapBtn.setAttribute('aria-label', `点击测速，当前 ${state.bpm} BPM，快捷键 T`);
+  }
+
+  function updateBpmUI({ skipInput = false } = {}) {
+    if (!skipInput && document.activeElement !== dom.bpmInput) {
+      dom.bpmInput.value = String(state.bpm);
+    }
+    dom.bpmSlider.value = String(state.bpm);
+    const percent = ((state.bpm - MIN_BPM) / (MAX_BPM - MIN_BPM)) * 100;
+    dom.bpmSlider.style.setProperty('--fill', `${percent.toFixed(2)}%`);
+    updateLabels();
+  }
+
+  function setBpm(value, options = {}) {
+    const next = clamp(Math.round(Number(value) || state.bpm), MIN_BPM, MAX_BPM);
+    state.bpm = next;
+    updateBpmUI({ skipInput: options.skipInput });
+    persist();
+  }
+
+  function setSubdivision(value) {
+    const next = clamp(Math.round(Number(value) || state.subdivision), 1, 11);
+    state.subdivision = next;
+    if (next % 2 !== 0) state.swing = false;
+    renderDivisionButtons();
+    renderBeatRow();
+    updateSwingUI();
+    updateLabels();
+    persist();
+  }
+
+  function setBeats(value) {
+    const next = clamp(Math.round(Number(value) || state.beats), MIN_BEATS, MAX_BEATS);
+    if (next === state.beats) {
+      dom.beatsOutput.textContent = String(state.beats);
+      return;
+    }
+
+    const nextAccents = Array.from({ length: next }, (_, index) => {
+      if (index < state.accents.length) return Boolean(state.accents[index]);
+      return false;
+    });
+    if (next > 0 && typeof state.accents[0] === 'undefined') nextAccents[0] = true;
+
+    state.beats = next;
+    state.accents = nextAccents;
+    renderBeatRow();
+    updateAccentUI();
+    updateLabels();
+    persist();
+  }
+
+  function toggleAccent(index) {
+    if (index < 0 || index >= state.beats) return;
+    state.accents[index] = !state.accents[index];
+    renderBeatRow();
+    updateAccentUI();
+    updateLabels();
+    persist();
+    if (navigator.vibrate) navigator.vibrate(8);
+  }
+
+  function setTimer(minutes) {
+    state.timer = Number(minutes) || 0;
+    timerExpired = false;
+    renderTimerButtons();
+    if (isPlaying && audioCtx) {
+      stopAtTime = state.timer > 0 ? audioCtx.currentTime + state.timer * 60 : null;
+      lastTimerText = '';
+      updateTimerDisplay(true);
+    } else {
+      updateTimerDisplay(true);
+    }
+    persist();
+  }
+
+  function setSound(sound) {
+    if (!SOUNDS.includes(sound)) return;
+    state.sound = sound;
+    renderSoundButtons();
+    persist();
+    if (!isPlaying) previewClick('accent');
+  }
+
+  function setVolume(value) {
+    state.volume = clamp(Number(value) / 100, 0, 1);
+    if (state.volume > 0) mutedVolume = state.volume;
+    dom.volumeSlider.value = String(Math.round(state.volume * 100));
+    dom.volumeSlider.style.setProperty('--fill', `${(state.volume * 100).toFixed(1)}%`);
+    dom.volumeOutput.textContent = `${Math.round(state.volume * 100)}%`;
+    setMasterVolume(state.volume);
+    persist();
+  }
+
+  /* ------------------------------------------------------------------
+     Tap tempo
+     ------------------------------------------------------------------ */
+  function handleTap() {
+    ensureAudio().catch(() => { /* The tap works without audio as well. */ });
+
+    const now = performance.now();
+    if (taps.length && now - taps[taps.length - 1] > 2200) taps = [];
+    taps.push(now);
+    if (taps.length > 7) taps.shift();
+
+    dom.tapBtn.classList.add('is-tapped');
+    window.clearTimeout(tapFlashTimeout);
+    tapFlashTimeout = window.setTimeout(() => dom.tapBtn.classList.remove('is-tapped'), 150);
+
+    if (taps.length >= 2) {
+      const intervals = [];
+      for (let i = 1; i < taps.length; i += 1) intervals.push(taps[i] - taps[i - 1]);
+      const sorted = [...intervals].sort((a, b) => a - b);
+      const median = sorted[Math.floor(sorted.length / 2)];
+      const filtered = intervals.filter(interval => interval > median * 0.55 && interval < median * 1.7);
+      const average = filtered.reduce((sum, value) => sum + value, 0) / filtered.length;
+      const nextBpm = clamp(Math.round(60000 / average), MIN_BPM, MAX_BPM);
+      setBpm(nextBpm);
+      dom.tapLabel.textContent = `${nextBpm} BPM`;
+      dom.tapHint.textContent = `已捕获 ${taps.length} 次 · 继续轻点微调`;
+    } else {
+      dom.tapLabel.textContent = '再点一次';
+      dom.tapHint.textContent = '继续轻点，第 2 下开始计算';
+    }
+
+    window.clearTimeout(tapResetTimeout);
+    tapResetTimeout = window.setTimeout(() => {
+      taps = [];
+      dom.tapLabel.textContent = '点击测速';
+      dom.tapHint.textContent = '连续轻点，跟随你的速度';
+      dom.tapBtn.classList.remove('is-tapped');
+    }, 2600);
+  }
+
+  /* ------------------------------------------------------------------
+     Theme, fullscreen & visibility
+     ------------------------------------------------------------------ */
+  function applyTheme(theme) {
+    state.theme = theme;
+    document.documentElement.dataset.theme = theme;
+    dom.themeColorMeta.setAttribute('content', theme === 'light' ? '#eee9df' : '#090a0c');
+    dom.themeBtn.setAttribute('aria-label', theme === 'light' ? '切换到深色模式' : '切换到浅色模式');
+    dom.themeBtn.title = theme === 'light' ? '切换到深色模式' : '切换到浅色模式';
+  }
+
+  function toggleTheme() {
+    applyTheme(state.theme === 'light' ? 'dark' : 'light');
+    persist();
+  }
+
+  let presentationReturnScroll = 0;
+
+  function isPresenting() {
+    return document.body.classList.contains('is-presenting');
+  }
+
+  function syncPresentationUI() {
+    const active = isPresenting();
+    dom.fullscreenBtn.setAttribute('aria-label', active ? '退出演奏大屏' : '进入演奏大屏');
+    dom.fullscreenBtn.title = active ? '退出演奏大屏' : '演奏大屏';
+    dom.fullscreenBtn.setAttribute('aria-expanded', active ? 'true' : 'false');
+  }
+
+  function leavePresentationLayout() {
+    if (!isPresenting()) return;
+    document.body.classList.remove('is-presenting');
+    syncPresentationUI();
+    window.setTimeout(() => {
+      window.scrollTo(0, presentationReturnScroll);
+    }, 20);
+  }
+
+  async function enterPresentation() {
+    if (isPresenting()) return;
+    presentationReturnScroll = window.scrollY;
+    document.body.classList.add('is-presenting');
+    syncPresentationUI();
+    window.scrollTo(0, 0);
+
+    if (document.fullscreenEnabled && !document.fullscreenElement) {
+      try {
+        await document.documentElement.requestFullscreen();
+      } catch (error) {
+        showToast('已进入演奏大屏，按 F 或点击「退出大屏」返回。');
+      }
+    }
+  }
+
+  async function exitPresentation() {
+    if (!isPresenting()) return;
+    leavePresentationLayout();
+    if (document.fullscreenElement) {
+      try {
+        await document.exitFullscreen();
+      } catch (error) { /* The layout can still be left if native fullscreen refuses. */ }
+    }
+  }
+
+  function togglePresentation() {
+    if (isPresenting()) {
+      exitPresentation();
+    } else {
+      enterPresentation();
+    }
+  }
+
+  function handleFullscreenChange() {
+    syncPresentationUI();
+    if (!document.fullscreenElement && isPresenting()) {
+      // The browser's own Escape key left native fullscreen; leave the focused layout too.
+      leavePresentationLayout();
+    }
+  }
+
+  /* ------------------------------------------------------------------
+     Events
+     ------------------------------------------------------------------ */
+  dom.playBtn.addEventListener('click', togglePlay);
+  dom.bpmDec.addEventListener('click', () => setBpm(state.bpm - 1));
+  dom.bpmInc.addEventListener('click', () => setBpm(state.bpm + 1));
+
+  dom.bpmSlider.addEventListener('input', event => {
+    setBpm(event.target.value, { skipInput: true });
+    dom.bpmInput.value = String(state.bpm);
+  });
+
+  dom.bpmInput.addEventListener('focus', () => {
+    dom.bpmInput.select();
+  });
+
+  dom.bpmInput.addEventListener('input', () => {
+    const cleaned = dom.bpmInput.value.replace(/\D/g, '').slice(0, 3);
+    if (cleaned !== dom.bpmInput.value) dom.bpmInput.value = cleaned;
+    if (!cleaned) return;
+    const numeric = Number(cleaned);
+    if (numeric >= MIN_BPM && numeric <= MAX_BPM) {
+      state.bpm = numeric;
+      dom.bpmSlider.value = String(numeric);
+      const percent = ((numeric - MIN_BPM) / (MAX_BPM - MIN_BPM)) * 100;
+      dom.bpmSlider.style.setProperty('--fill', `${percent.toFixed(2)}%`);
+      updateLabels();
+      persist();
+    }
+  });
+
+  dom.bpmInput.addEventListener('blur', () => {
+    setBpm(dom.bpmInput.value);
+    dom.bpmInput.value = String(state.bpm);
+  });
+
+  dom.bpmInput.addEventListener('keydown', event => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      dom.bpmInput.blur();
+    } else if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+      event.preventDefault();
+      const step = event.shiftKey ? 5 : 1;
+      setBpm(state.bpm + (event.key === 'ArrowUp' ? step : -step));
+      dom.bpmInput.value = String(state.bpm);
+      dom.bpmInput.select();
+    }
+  });
+
+  dom.tapBtn.addEventListener('click', handleTap);
+
+  dom.divisionGrid.addEventListener('click', event => {
+    const button = event.target.closest('.division-button');
+    if (button) setSubdivision(button.dataset.sub);
+  });
+
+  dom.swingSwitch.addEventListener('click', () => {
+    if (state.subdivision % 2 !== 0) {
+      showToast('摇摆需要双数细分，请选择 2 / 4 / 6 / 8 / 10。');
+      return;
+    }
+    state.swing = !state.swing;
+    updateSwingUI();
+    updateLabels();
+    persist();
+    if (state.swing) showToast('Swing 已开启：长—短律动。');
+  });
+
+  dom.beatsDec.addEventListener('click', () => setBeats(state.beats - 1));
+  dom.beatsInc.addEventListener('click', () => setBeats(state.beats + 1));
+  dom.accentSwitch.addEventListener('click', () => toggleAccent(0));
+
+  dom.soundGrid.addEventListener('click', event => {
+    const button = event.target.closest('.sound-button');
+    if (button) setSound(button.dataset.sound);
+  });
+
+  dom.volumeSlider.addEventListener('input', event => setVolume(event.target.value));
+
+  dom.timerOptions.addEventListener('click', event => {
+    const button = event.target.closest('button[data-timer]');
+    if (button) setTimer(button.dataset.timer);
+  });
+
+  dom.themeBtn.addEventListener('click', toggleTheme);
+  dom.fullscreenBtn.addEventListener('click', togglePresentation);
+  dom.presentationExit.addEventListener('click', exitPresentation);
+  document.addEventListener('fullscreenchange', handleFullscreenChange);
+
+  document.addEventListener('keydown', event => {
+    if (event.metaKey || event.ctrlKey || event.altKey) return;
+
+    if (event.key === 'Escape' && isPresenting()) {
+      event.preventDefault();
+      exitPresentation();
+      return;
+    }
+
+    const target = event.target;
+    const tag = target && target.tagName ? target.tagName : '';
+    const isTextEntry = tag === 'TEXTAREA' || tag === 'SELECT' ||
+      (tag === 'INPUT' && !['range', 'button', 'checkbox', 'radio'].includes(target.type)) ||
+      (target && target.isContentEditable);
+
+    if (event.code === 'Space' && !isTextEntry) {
+      event.preventDefault();
+      togglePlay();
+      return;
+    }
+
+    if (isTextEntry) return;
+
+    const key = event.key.toLowerCase();
+    if (key === 't' && !event.repeat) {
+      event.preventDefault();
+      handleTap();
+    } else if ((event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
+      event.preventDefault();
+      const step = event.shiftKey ? 5 : 1;
+      setBpm(state.bpm + (event.key === 'ArrowUp' ? step : -step));
+    } else if (key === 'f' && !event.repeat) {
+      event.preventDefault();
+      togglePresentation();
+    } else if (key === 'm' && !event.repeat) {
+      event.preventDefault();
+      if (state.volume > 0) {
+        mutedVolume = state.volume;
+        setVolume(0);
+        showToast('已静音（按 M 恢复）');
+      } else {
+        setVolume(Math.round(mutedVolume * 100));
+        showToast('已恢复音量');
+      }
+    }
+  });
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      visualQueue = [];
+    } else if (isPlaying) {
+      visualQueue = [];
+      lastVisual = null;
+      if (audioCtx && audioCtx.state === 'suspended') {
+        audioCtx.resume().catch(() => { /* The scheduler will resume if possible. */ });
+      }
+      requestWakeLock();
+    }
+  });
+
+  window.addEventListener('pagehide', () => {
+    releaseWakeLock();
+  });
+
+  reduceMotion.addEventListener?.('change', () => {
+    if (!isPlaying) {
+      cancelPendulumSettle();
+      applyPendulumAngle(0);
+    }
+  });
+
+  /* ------------------------------------------------------------------
+     Initialize
+     ------------------------------------------------------------------ */
+  applyTheme(state.theme);
+  buildArcTicks();
+  buildDivisionButtons();
+  buildBeatControls();
+  renderDivisionButtons();
+  renderBeatRow();
+  renderTimerButtons();
+  renderSoundButtons();
+  updateSwingUI();
+  updateAccentUI();
+  updateBpmUI();
+  updateLabels();
+  setVolume(state.volume * 100);
+  updateTimerDisplay(true);
+  syncPresentationUI();
+
+  if (!('wakeLock' in navigator)) {
+    // No visual change; the feature is simply skipped on unsupported browsers.
+  }
+
+  // A tiny read-only diagnostics surface, useful for automated timing checks.
+  window.__PULSE__ = {
+    get state() {
+      return {
+        ...state,
+        accents: [...state.accents],
+        isPlaying,
+        audioState: audioCtx ? audioCtx.state : 'uninitialized',
+        audioTime: audioCtx ? audioCtx.currentTime : null,
+        stopAtTime,
+        isPresenting: isPresenting()
+      };
+    },
+    start: startMetronome,
+    stop: () => stopMetronome('manual'),
+    toggle: togglePlay,
+    setBpm,
+    setBeats,
+    setSubdivision,
+    setTimer,
+    enterPresentation,
+    exitPresentation,
+    getTicks: () => debugTicks.map(tick => ({ ...tick })),
+    getVisualQueue: () => visualQueue.map(item => ({ ...item }))
+  };
+})();
+</script>
+</body>
+</html>
